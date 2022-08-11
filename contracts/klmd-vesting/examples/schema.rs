@@ -2,10 +2,7 @@ use std::env::current_dir;
 use std::fs::create_dir_all;
 
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
-use klmd_vesting::msg::{
-    Cw20HookMsg, ExecuteMsg, InstantiateMsg, MasterAddressResponse, QueryMsg,
-    VestingAccountResponse,
-};
+use klmd_vesting::msg::{InstantiateMsg, ExecuteMsg, QueryMsg, Cw20HookMsg, VestingAccountResponse, MasterAddressResponse};
 
 fn main() {
     let mut out_dir = current_dir().unwrap();
