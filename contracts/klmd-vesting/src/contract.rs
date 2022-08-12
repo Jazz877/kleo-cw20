@@ -3,7 +3,7 @@ use cosmwasm_std::entry_point;
 use cosmwasm_std::{to_binary, Binary, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Order, Response, StdResult, WasmMsg, Storage, StdError, Addr};
 
 use crate::error::ContractError;
-use crate::msg::{ExecuteMsg, InstantiateMsg, Payment, PaymentsResponse, QueryMsg};
+use crate::msg::{ExecuteMsg, GetOwnerResponse, InstantiateMsg, Payment, PaymentsResponse, QueryMsg};
 use crate::state::{next_id, PaymentState, PAYMENTS, OWNER_ADDRESS, TOKEN_ADDRESS};
 use cw20::Cw20ExecuteMsg;
 
@@ -140,7 +140,7 @@ pub fn get_payment_message(p: &Payment, token_address: Addr) -> StdResult<Cosmos
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::GetPayments {} => to_binary(&query_payments(deps)),
-        QueryMsg::GetOwner {} => to_binary(&query_owner(deps)?),
+        QueryMsg::GetOwner {} => to_binary(&query_owner(deps)),
     }
 }
 
@@ -156,9 +156,11 @@ fn query_payments(deps: Deps) -> PaymentsResponse {
     }
 }
 
-fn query_owner(deps: Deps) -> StdResult<Addr> {
-    let owner = OWNER_ADDRESS.load(deps.storage)?;
-    Ok(owner)
+fn query_owner(deps: Deps) -> GetOwnerResponse {
+    let owner = OWNER_ADDRESS.load(deps.storage);
+    GetOwnerResponse {
+        owner: owner.unwrap(),
+    }
 }
 
 #[cfg(test)]
@@ -168,7 +170,7 @@ mod tests {
     use cw_utils::Expiration;
     use crate::contract::{execute, instantiate, query};
     use crate::ContractError;
-    use crate::msg::{ExecuteMsg, InstantiateMsg, Payment, PaymentsResponse, QueryMsg};
+    use crate::msg::{ExecuteMsg, GetOwnerResponse, InstantiateMsg, Payment, PaymentsResponse, QueryMsg};
     use crate::state::PaymentState;
 
     #[test]
@@ -180,7 +182,6 @@ mod tests {
                 Payment {
                     recipient: Addr::unchecked("addr0002"),
                     amount: Uint128::from(100u64),
-                    denom: "KLEO".to_string(),
                     time: Expiration::AtHeight(10u64),
                 }
             ],
@@ -196,8 +197,8 @@ mod tests {
 
         // it worked, let's query the state
         let res = query(deps.as_ref(), env.clone(), QueryMsg::GetOwner {}).unwrap();
-        let owner: Addr = from_binary(&res).unwrap();
-        assert_eq!("owner0001", owner.as_str());
+        let response: GetOwnerResponse = from_binary(&res).unwrap();
+        assert_eq!("owner0001", response.owner.as_str());
 
         let res = query(deps.as_ref(), env.clone(), QueryMsg::GetPayments {}).unwrap();
         let payments: PaymentsResponse = from_binary(&res).unwrap();
@@ -207,7 +208,6 @@ mod tests {
                 payment: Payment {
                     recipient: Addr::unchecked("addr0002"),
                     amount: Uint128::from(100u64),
-                    denom: "KLEO".to_string(),
                     time: Expiration::AtHeight(10u64),
                 },
                 paid: false,
@@ -232,7 +232,6 @@ mod tests {
                 Payment {
                     recipient: Addr::unchecked("addr0002"),
                     amount: Uint128::from(100u64),
-                    denom: "KLEO".to_string(),
                     time: Expiration::AtHeight(10u64),
                 }
             ],
@@ -258,7 +257,6 @@ mod tests {
                 payment: Payment {
                     recipient: Addr::unchecked("addr0002"),
                     amount: Uint128::from(100u64),
-                    denom: "KLEO".to_string(),
                     time: Expiration::AtHeight(10u64),
                 },
                 paid: true,
@@ -278,13 +276,11 @@ mod tests {
                 Payment {
                     recipient: Addr::unchecked("addr0002"),
                     amount: Uint128::from(100u64),
-                    denom: "KLEO".to_string(),
                     time: Expiration::AtHeight(10u64),
                 },
                 Payment {
                     recipient: Addr::unchecked("addr0003"),
                     amount: Uint128::from(100u64),
-                    denom: "KLEO".to_string(),
                     time: Expiration::AtHeight(3u64),
                 }
             ],
@@ -325,7 +321,6 @@ mod tests {
                 payment: Payment {
                     recipient: Addr::unchecked("addr0003"),
                     amount: Uint128::from(100u64),
-                    denom: "KLEO".to_string(),
                     time: Expiration::AtHeight(3u64),
                 },
                 paid: true,

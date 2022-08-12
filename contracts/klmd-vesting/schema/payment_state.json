@@ -75,16 +75,12 @@
       "type": "object",
       "required": [
         "amount",
-        "denom",
         "recipient",
         "time"
       ],
       "properties": {
         "amount": {
           "$ref": "#/definitions/Uint128"
-        },
-        "denom": {
-          "type": "string"
         },
         "recipient": {
           "$ref": "#/definitions/Addr"

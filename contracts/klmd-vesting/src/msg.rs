@@ -15,7 +15,6 @@ pub struct InstantiateMsg {
 pub struct Payment {
     pub recipient: Addr,
     pub amount: Uint128,
-    pub denom: String,
     pub time: Expiration,
 }
 
@@ -40,4 +39,9 @@ pub enum QueryMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct PaymentsResponse {
     pub payments: Vec<PaymentState>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct GetOwnerResponse {
+    pub owner: Addr,
 }
