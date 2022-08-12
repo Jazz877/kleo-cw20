@@ -3,7 +3,7 @@ use std::fs::create_dir_all;
 
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
-use klmd_vesting::msg::{ExecuteMsg, InstantiateMsg, PaymentsResponse, QueryMsg};
+use klmd_vesting::msg::{ExecuteMsg, GetOwnerResponse, InstantiateMsg, PaymentsResponse, QueryMsg};
 use klmd_vesting::state::PaymentState;
 
 fn main() {
@@ -17,4 +17,5 @@ fn main() {
     export_schema(&schema_for!(QueryMsg), &out_dir);
     export_schema(&schema_for!(PaymentState), &out_dir);
     export_schema(&schema_for!(PaymentsResponse), &out_dir);
+    export_schema(&schema_for!(GetOwnerResponse), &out_dir);
 }
