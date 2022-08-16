@@ -398,6 +398,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "klmd-custom-vesting"
+version = "0.1.0"
+dependencies = [
+ "cosmwasm-schema",
+ "cosmwasm-std",
+ "cosmwasm-storage",
+ "cw-storage-plus",
+ "cw-utils",
+ "cw20",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "klmd-cw20"
 version = "0.1.0"
 dependencies = [
