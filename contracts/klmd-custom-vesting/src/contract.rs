@@ -1,9 +1,8 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 
-use cosmwasm_std::{DepsMut, Env, MessageInfo, StdResult, Response, Addr, StdError, Storage, Timestamp, Uint128, CosmosMsg, WasmMsg, to_binary, attr, Binary, Deps, Order};
+use cosmwasm_std::{DepsMut, Env, MessageInfo, StdResult, Response, Addr, StdError, Storage, Timestamp, Uint128, WasmMsg, to_binary, attr, Binary, Deps};
 use cw20::Cw20ExecuteMsg;
-use cw_storage_plus::Bound;
 
 use crate::{msg::{InstantiateMsg, ExecuteMsg, QueryMsg, OwnerAddressResponse, VestingAccountResponse, VestingData, TokenAddressResponse}, state::{OWNER_ADDRESS, TOKEN_ADDRESS, ACCOUNTS, Account}};
 
@@ -51,7 +50,7 @@ fn only_owner(storage: &dyn Storage, sender: Addr) -> StdResult<()> {
     Ok(())
 }
 
-fn update_owner_address(deps: DepsMut, env: Env, info: MessageInfo, owner_address: Addr) -> StdResult<Response>  {
+fn update_owner_address(deps: DepsMut, _env: Env, info: MessageInfo, owner_address: Addr) -> StdResult<Response>  {
     only_owner(deps.storage, info.sender)?;
 
     OWNER_ADDRESS.save(deps.storage, &owner_address)?;
@@ -59,7 +58,7 @@ fn update_owner_address(deps: DepsMut, env: Env, info: MessageInfo, owner_addres
     Ok(Response::new().add_attribute("action", "update_owner_address").add_attribute("owner_address", &owner_address))
 }
 
-fn register_vesting_account(deps: DepsMut, env: Env, info: MessageInfo, address: Addr, start_time: Timestamp, end_time: Timestamp, vesting_amount: Uint128) -> StdResult<Response> {
+fn register_vesting_account(deps: DepsMut, _env: Env, _info: MessageInfo, address: Addr, start_time: Timestamp, end_time: Timestamp, vesting_amount: Uint128) -> StdResult<Response> {
     // vesting_account existence check
     if ACCOUNTS.has(deps.storage, &address) {
         return Err(StdError::generic_err("already exists"));
@@ -115,6 +114,7 @@ fn deregister_vesting_account(deps: DepsMut, env: Env, info: MessageInfo, addres
                         amount: claimable_amount,
                     })?,
         };
+        messages.push(claimable_message);
     }
 
     // transfer left vesting amount to owner or
@@ -190,55 +190,184 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::OwnerAddress {} => to_binary(&query_owner_address(deps, env)?),
         QueryMsg::VestingAccount {
             address,
-            start_after,
-            limit,
-        } => to_binary(&query_vesting_account(deps, env, address, start_after, limit)?),
+        } => to_binary(&query_vesting_account(deps, env, address)?),
         QueryMsg::TokenAddress {} => to_binary(&query_token_address(deps, env)?),
     }
 }
 
-fn query_owner_address(deps: Deps, env: Env) -> StdResult<OwnerAddressResponse> {
+fn query_owner_address(deps: Deps, _env: Env) -> StdResult<OwnerAddressResponse> {
     let owner_address = OWNER_ADDRESS.load(deps.storage)?;
     Ok(OwnerAddressResponse {
         owner_address,
     })
 }
 
-fn query_token_address(deps: Deps, env: Env) -> StdResult<TokenAddressResponse> {
+fn query_token_address(deps: Deps, _env: Env) -> StdResult<TokenAddressResponse> {
     let token_address = TOKEN_ADDRESS.load(deps.storage)?;
     Ok(TokenAddressResponse {
         token_address,
     })
 }
 
-const MAX_LIMIT: u32 = 30u32;
-const DEFAULT_LIMIT: u32 = 10u32;
-fn query_vesting_account(deps: Deps, env: Env, address: Addr, start_after: Option<Addr>, limit: Option<u32>) -> StdResult<VestingAccountResponse> {
-    let mut vestings: Vec<VestingData> = vec![];
-    let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
-    let start = start_after.map(|s| Bound::ExclusiveRaw(s.as_bytes().to_vec()));
+fn query_vesting_account(deps: Deps, env: Env, address: Addr) -> StdResult<VestingAccountResponse> {
+    let account = ACCOUNTS.load(deps.storage, &address)?;
 
-    for item in ACCOUNTS
-        .range(
-        deps.storage,
-        start,
-        None,
-            Order::Ascending,
-        )
-        .take(limit)
-    {
-        let (_, account) = item?;
-        let vested_amount = account
-            .vested_amount(&env.block)?;
+    let vested_amount = account.vested_amount(&env.block)?;
+    let claimed_amount = account.claimed_amount;
 
-        vestings.push(VestingData {
-            vesting_amount: account.vesting_amount,
-            vested_amount,
-            start_time: account.start_time,
-            end_time: account.end_time,
-            claimable_amount: vested_amount.checked_sub(account.claimed_amount)?,
+    let claimable_amount = vested_amount.checked_sub(claimed_amount)?;
+
+    let vesting_data = VestingData {
+        vesting_amount: account.vesting_amount,
+        vested_amount,
+        start_time: account.start_time,
+        end_time: account.end_time,
+        claimable_amount: claimable_amount,
+        claimed_amount: account.claimed_amount,
+    };
+
+    Ok(VestingAccountResponse { address, vestings: vesting_data })
+}
+
+#[cfg(test)]
+mod testing {
+    use super::*;
+    use cosmwasm_std::{testing::{mock_dependencies, mock_env, mock_info}, Addr, from_binary};
+
+    use crate::msg::InstantiateMsg;
+
+    #[test]
+    fn proper_instantiation() {
+        let mut deps = mock_dependencies();
+
+        let msg = InstantiateMsg {
+            token_address: Addr::unchecked("token0001".to_string()),
+            owner_address: Some(Addr::unchecked("addr0001".to_string())),
+        };
+
+        let env = mock_env();
+        let info = mock_info("addr0000", &[]);
+
+        // we can just call .unwrap() to assert this was a success
+        let _res = instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
+
+        let res = query(deps.as_ref(), env.clone(), QueryMsg::OwnerAddress{}).unwrap();
+        let owner_response: OwnerAddressResponse = from_binary(&res).unwrap();
+        assert_eq!(Addr::unchecked("addr0001".to_string()), owner_response.owner_address);
+
+        let res = query(deps.as_ref(), env.clone(), QueryMsg::TokenAddress{}).unwrap();
+        let token_response: TokenAddressResponse = from_binary(&res).unwrap();
+        assert_eq!(Addr::unchecked("token0001".to_string()), token_response.token_address);
+    }
+
+    #[test]
+    fn register_vesting_account() {
+        let mut deps = mock_dependencies();
+
+        let msg = InstantiateMsg {
+            token_address: Addr::unchecked("token0001".to_string()),
+            owner_address: Some(Addr::unchecked("addr0001".to_string())),
+        };
+
+        let mut env = mock_env();
+        let info = mock_info("addr0000", &[]);
+
+        // we can just call .unwrap() to assert this was a success
+        let _res = instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
+
+
+        let mut deps = mock_dependencies();
+        let msg = ExecuteMsg::RegisterVestingAccount {
+            address: Addr::unchecked("addr0002".to_string()),
+            vesting_amount: Uint128::from(100u32),
+            start_time: Timestamp::from_nanos(0),
+            end_time: Timestamp::from_nanos(100),
+        };
+        let info = mock_info("addr0001", &[]);
+        let _ = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+
+        env.block.time = Timestamp::from_nanos(200);
+        let res = query(deps.as_ref(), env.clone(), QueryMsg::VestingAccount {
+            address: Addr::unchecked("addr0002".to_string()),
+        }).unwrap();
+        let vesting_response: VestingAccountResponse = from_binary(&res).unwrap();
+
+        assert_eq!(vesting_response, VestingAccountResponse {
+            address: Addr::unchecked("addr0002".to_string()),
+            vestings: VestingData { 
+                vesting_amount: Uint128::from(100u32), 
+                vested_amount: Uint128::from(100u32), 
+                claimable_amount: Uint128::from(100u32),
+                claimed_amount: Uint128::zero(),
+                start_time: Timestamp::from_nanos(0), 
+                end_time: Timestamp::from_nanos(100), 
+            },
         })
     }
 
-    Ok(VestingAccountResponse { address, vestings })
+    fn claim() {
+        let mut deps = mock_dependencies();
+
+        let msg = InstantiateMsg {
+            token_address: Addr::unchecked("token0001".to_string()),
+            owner_address: Some(Addr::unchecked("addr0001".to_string())),
+        };
+
+        let mut env = mock_env();
+        let info = mock_info("addr0000", &[]);
+
+        // we can just call .unwrap() to assert this was a success
+        let _res = instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
+
+
+        let mut deps = mock_dependencies();
+        let msg = ExecuteMsg::RegisterVestingAccount {
+            address: Addr::unchecked("addr0002".to_string()),
+            vesting_amount: Uint128::from(100u32),
+            start_time: Timestamp::from_nanos(0),
+            end_time: Timestamp::from_nanos(100),
+        };
+        let info = mock_info("addr0001", &[]);
+        let _ = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+
+        env.block.time = Timestamp::from_nanos(200);
+        let res = query(deps.as_ref(), env.clone(), QueryMsg::VestingAccount {
+            address: Addr::unchecked("addr0002".to_string()),
+        }).unwrap();
+        let vesting_response: VestingAccountResponse = from_binary(&res).unwrap();
+
+        assert_eq!(vesting_response, VestingAccountResponse {
+            address: Addr::unchecked("addr0002".to_string()),
+            vestings: VestingData { 
+                vesting_amount: Uint128::from(100u32), 
+                vested_amount: Uint128::from(100u32), 
+                claimable_amount: Uint128::from(100u32), 
+                claimed_amount: Uint128::zero(),
+                start_time: Timestamp::from_nanos(0), 
+                end_time: Timestamp::from_nanos(100), 
+            },
+        });
+
+        let msg = ExecuteMsg::Claim {
+            recipient: None,
+        };
+        let info = mock_info("addr0000", &[]);
+        let _ = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        let res = query(deps.as_ref(), env.clone(), QueryMsg::VestingAccount {
+            address: Addr::unchecked("addr0002".to_string()),
+        }).unwrap();
+        let vesting_response: VestingAccountResponse = from_binary(&res).unwrap();
+
+        assert_eq!(vesting_response, VestingAccountResponse {
+            address: Addr::unchecked("addr0002".to_string()),
+            vestings: VestingData { 
+                vesting_amount: Uint128::from(100u32), 
+                vested_amount: Uint128::from(100u32), 
+                claimable_amount: Uint128::from(0u32),
+                claimed_amount: Uint128::from(100u32), 
+                start_time: Timestamp::from_nanos(0), 
+                end_time: Timestamp::from_nanos(100), 
+            },
+        })
+    }
 }

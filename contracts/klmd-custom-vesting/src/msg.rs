@@ -37,8 +37,6 @@ pub enum QueryMsg {
     TokenAddress {},
     VestingAccount {
         address: Addr,
-        start_after: Option<Addr>,
-        limit: Option<u32>,
     },
 }
 
@@ -55,7 +53,7 @@ pub struct TokenAddressResponse {
 #[derive(Serialize, Deserialize, JsonSchema, PartialEq, Debug)]
 pub struct VestingAccountResponse {
     pub address: Addr,
-    pub vestings: Vec<VestingData>,
+    pub vestings: VestingData,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, PartialEq, Debug)]
@@ -63,6 +61,7 @@ pub struct VestingData {
     pub vesting_amount: Uint128,
     pub vested_amount: Uint128,
     pub claimable_amount: Uint128,
+    pub claimed_amount: Uint128,
     pub start_time: Timestamp,
     pub end_time: Timestamp,
 }
