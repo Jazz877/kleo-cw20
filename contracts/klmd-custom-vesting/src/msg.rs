@@ -2,6 +2,7 @@ use cosmwasm_std::{Addr, Uint128, Timestamp};
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 
+#[derive(Serialize, Deserialize, JsonSchema)]
 pub struct InstantiateMsg {
     pub owner_address: Option<Addr>,
     pub token_address: Addr,
