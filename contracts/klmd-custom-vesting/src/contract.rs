@@ -58,22 +58,25 @@ fn update_owner_address(deps: DepsMut, _env: Env, info: MessageInfo, owner_addre
     Ok(Response::new().add_attribute("action", "update_owner_address").add_attribute("owner_address", &owner_address))
 }
 
-fn register_vesting_account(deps: DepsMut, _env: Env, _info: MessageInfo, address: Addr, start_time: Timestamp, end_time: Timestamp, vesting_amount: Uint128) -> StdResult<Response> {
+fn register_vesting_account(deps: DepsMut, env: Env, _info: MessageInfo, address: Addr, start_time: Timestamp, end_time: Timestamp, vesting_amount: Uint128) -> StdResult<Response> {
     // vesting_account existence check
     if ACCOUNTS.has(deps.storage, &address) {
         return Err(StdError::generic_err("already exists"));
     }
 
+    let account = Account {
+        address: address.clone(),
+        vesting_amount: vesting_amount.clone(),
+        start_time: start_time,
+        end_time: end_time,
+        claimed_amount: Uint128::zero(),
+    };
+    account.validate(&env.block, vesting_amount)?;
+
     ACCOUNTS.save(
         deps.storage,
         &address,
-        &Account {
-            address: address.clone(),
-            vesting_amount: vesting_amount.clone(),
-            start_time: start_time,
-            end_time: end_time,
-            claimed_amount: Uint128::zero(),
-        }
+        &account,
     )?;
 
     Ok(Response::new()
@@ -146,7 +149,10 @@ fn deregister_vesting_account(deps: DepsMut, env: Env, info: MessageInfo, addres
 }
 
 fn claim(deps: DepsMut, env: Env, info: MessageInfo, recipient: Option<Addr>) -> StdResult<Response> {
-    let _recipient = recipient.unwrap_or(info.sender);
+    let _recipient = match recipient {
+        None => info.sender,
+        Some(addr) => addr,
+    };
     let token_address = TOKEN_ADDRESS.load(deps.storage)?;
 
     let account = ACCOUNTS.may_load(deps.storage, &_recipient)?;
@@ -270,6 +276,7 @@ mod testing {
         };
 
         let mut env = mock_env();
+        env.block.time = Timestamp::from_nanos(0);
         let info = mock_info("addr0000", &[]);
 
         // we can just call .unwrap() to assert this was a success
@@ -280,13 +287,13 @@ mod testing {
         let msg = ExecuteMsg::RegisterVestingAccount {
             address: Addr::unchecked("addr0002".to_string()),
             vesting_amount: Uint128::from(100u32),
-            start_time: Timestamp::from_nanos(0),
-            end_time: Timestamp::from_nanos(100),
+            start_time: Timestamp::from_nanos(100),
+            end_time: Timestamp::from_nanos(200),
         };
         let info = mock_info("addr0001", &[]);
         let _ = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
 
-        env.block.time = Timestamp::from_nanos(200);
+        env.block.time = Timestamp::from_nanos(300);
         let res = query(deps.as_ref(), env.clone(), QueryMsg::VestingAccount {
             address: Addr::unchecked("addr0002".to_string()),
         }).unwrap();
@@ -299,12 +306,13 @@ mod testing {
                 vested_amount: Uint128::from(100u32), 
                 claimable_amount: Uint128::from(100u32),
                 claimed_amount: Uint128::zero(),
-                start_time: Timestamp::from_nanos(0), 
-                end_time: Timestamp::from_nanos(100), 
+                start_time: Timestamp::from_nanos(100), 
+                end_time: Timestamp::from_nanos(200), 
             },
         })
     }
 
+    #[test]
     fn claim() {
         let mut deps = mock_dependencies();
 
@@ -314,23 +322,22 @@ mod testing {
         };
 
         let mut env = mock_env();
+        env.block.time = Timestamp::from_nanos(0);
         let info = mock_info("addr0000", &[]);
 
         // we can just call .unwrap() to assert this was a success
         let _res = instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
 
-
-        let mut deps = mock_dependencies();
         let msg = ExecuteMsg::RegisterVestingAccount {
             address: Addr::unchecked("addr0002".to_string()),
             vesting_amount: Uint128::from(100u32),
-            start_time: Timestamp::from_nanos(0),
-            end_time: Timestamp::from_nanos(100),
+            start_time: Timestamp::from_nanos(100),
+            end_time: Timestamp::from_nanos(200),
         };
         let info = mock_info("addr0001", &[]);
         let _ = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
 
-        env.block.time = Timestamp::from_nanos(200);
+        env.block.time = Timestamp::from_nanos(199);
         let res = query(deps.as_ref(), env.clone(), QueryMsg::VestingAccount {
             address: Addr::unchecked("addr0002".to_string()),
         }).unwrap();
@@ -340,18 +347,18 @@ mod testing {
             address: Addr::unchecked("addr0002".to_string()),
             vestings: VestingData { 
                 vesting_amount: Uint128::from(100u32), 
-                vested_amount: Uint128::from(100u32), 
-                claimable_amount: Uint128::from(100u32), 
+                vested_amount: Uint128::from(99u32), 
+                claimable_amount: Uint128::from(99u32), 
                 claimed_amount: Uint128::zero(),
-                start_time: Timestamp::from_nanos(0), 
-                end_time: Timestamp::from_nanos(100), 
+                start_time: Timestamp::from_nanos(100), 
+                end_time: Timestamp::from_nanos(200), 
             },
         });
 
         let msg = ExecuteMsg::Claim {
             recipient: None,
         };
-        let info = mock_info("addr0000", &[]);
+        let info = mock_info("addr0002", &[]);
         let _ = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
         let res = query(deps.as_ref(), env.clone(), QueryMsg::VestingAccount {
             address: Addr::unchecked("addr0002".to_string()),
@@ -362,11 +369,11 @@ mod testing {
             address: Addr::unchecked("addr0002".to_string()),
             vestings: VestingData { 
                 vesting_amount: Uint128::from(100u32), 
-                vested_amount: Uint128::from(100u32), 
+                vested_amount: Uint128::from(99u32), 
                 claimable_amount: Uint128::from(0u32),
-                claimed_amount: Uint128::from(100u32), 
-                start_time: Timestamp::from_nanos(0), 
-                end_time: Timestamp::from_nanos(100), 
+                claimed_amount: Uint128::from(99u32), 
+                start_time: Timestamp::from_nanos(100), 
+                end_time: Timestamp::from_nanos(200), 
             },
         })
     }

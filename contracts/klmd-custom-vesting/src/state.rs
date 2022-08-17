@@ -1,7 +1,7 @@
 use cw_storage_plus::{Map, Item};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use cosmwasm_std::{Timestamp, Addr, Uint128, BlockInfo, StdResult};
+use cosmwasm_std::{Timestamp, Addr, Uint128, BlockInfo, StdResult, StdError};
 
 pub const ACCOUNTS: Map<&Addr, Account> = Map::new("accounts");
 pub const TOKEN_ADDRESS: Item<Addr> = Item::new("token_address");
@@ -17,6 +17,23 @@ pub struct Account {
 }
 
 impl Account {
+    pub fn validate(&self, block_info: &BlockInfo) -> StdResult<()> {
+
+        if self.vesting_amount.is_zero() {
+            return Err(StdError::generic_err("assert(vesting_amount > 0)"));
+        }
+
+        if self.start_time < block_info.time {
+            return Err(StdError::generic_err("assert(start_time >= block_time)"));
+        }
+
+        if self.end_time < self.start_time {
+            return Err(StdError::generic_err("assert(end_time >= start_time)"));
+        }
+
+        Ok(())
+    }
+
     pub fn vested_amount(&self, block_info: &BlockInfo) -> StdResult<Uint128> {
         if block_info.time < self.start_time {
             return Ok(Uint128::zero());
