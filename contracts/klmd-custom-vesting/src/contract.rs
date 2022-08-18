@@ -71,7 +71,7 @@ fn register_vesting_account(deps: DepsMut, env: Env, _info: MessageInfo, address
         end_time: end_time,
         claimed_amount: Uint128::zero(),
     };
-    account.validate(&env.block, vesting_amount)?;
+    account.validate(&env.block)?;
 
     ACCOUNTS.save(
         deps.storage,
