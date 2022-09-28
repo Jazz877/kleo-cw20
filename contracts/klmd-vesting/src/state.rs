@@ -1,24 +1,26 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::msg::Payment;
-use cosmwasm_std::{StdResult, Storage};
+use crate::msg::VestingSchedule;
+use cosmwasm_std::Uint128;
+use cw20::Denom;
 use cw_storage_plus::{Item, Map};
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct PaymentState {
-    pub payment: Payment,
-    pub paid: bool,
-    pub id: u64,
+pub const MASTER_ADDRESS: Item<String> = Item::new("master_address");
+pub const VESTING_ACCOUNTS: Map<(&str, &str), VestingAccount> = Map::new("vesting_accounts");
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
+pub struct VestingAccount {
+    pub address: String,
+    pub vesting_denom: Denom,
+    pub vesting_amount: Uint128,
+    pub vesting_schedule: VestingSchedule,
+    pub claimed_amount: Uint128,
 }
 
-pub const PAYMENT_COUNT: Item<u64> = Item::new("proposal_count");
-
-// multiple-item map
-pub const PAYMENTS: Map<u64, PaymentState> = Map::new("payments");
-
-pub fn next_id(store: &mut dyn Storage) -> StdResult<u64> {
-    let id: u64 = PAYMENT_COUNT.may_load(store)?.unwrap_or_default() + 1;
-    PAYMENT_COUNT.save(store, &id)?;
-    Ok(id)
+pub fn denom_to_key(denom: Denom) -> String {
+    match denom {
+        Denom::Cw20(addr) => format!("cw20-{}", addr.to_string()),
+        Denom::Native(denom) => format!("native-{}", denom),
+    }
 }

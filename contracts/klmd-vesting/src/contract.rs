@@ -1,390 +1,409 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Order, Response,
-    StdResult, WasmMsg,
+    from_binary, to_binary, Attribute, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
+    MessageInfo, Order, Response, StdError, StdResult, Storage, Uint128, WasmMsg,
 };
 
-use crate::error::ContractError;
-use crate::msg::{ExecuteMsg, InstantiateMsg, Payment, PaymentsResponse, QueryMsg};
-use crate::state::{next_id, PaymentState, PAYMENTS};
-use cw20::Cw20ExecuteMsg;
+use serde_json::to_string;
+
+use cw20::{Cw20ExecuteMsg, Cw20ReceiveMsg, Denom};
+use cw_storage_plus::Bound;
+
+use crate::msg::{
+    Cw20HookMsg, ExecuteMsg, InstantiateMsg, MasterAddressResponse, QueryMsg,
+    VestingAccountResponse, VestingData, VestingSchedule,
+};
+use crate::state::{denom_to_key, VestingAccount, MASTER_ADDRESS, VESTING_ACCOUNTS};
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
     _env: Env,
-    _info: MessageInfo,
+    info: MessageInfo,
     msg: InstantiateMsg,
-) -> Result<Response, ContractError> {
-    for p in msg.schedule.into_iter() {
-        let id = next_id(deps.storage)?;
-        PAYMENTS.save(
-            deps.storage,
-            id.into(),
-            &PaymentState {
-                payment: p,
-                paid: false,
-                id,
-            },
-        )?;
-    }
-    Ok(Response::new().add_attribute("method", "instantiate"))
-    //.add_attribute("count", msg.schedule))
+) -> StdResult<Response> {
+    let master_address = if msg.master_address.is_none() {
+        info.sender.to_string()
+    } else {
+        msg.master_address.unwrap()
+    };
+
+    MASTER_ADDRESS.save(deps.storage, &master_address)?;
+    Ok(Response::new().add_attribute("master_address", master_address.as_str()))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn execute(
+pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> StdResult<Response> {
+    match msg {
+        ExecuteMsg::Receive(msg) => receive_cw20(deps, env, info, msg),
+        ExecuteMsg::UpdateMasterAddress { master_address } => {
+            update_master_address(deps, env, info, master_address)
+        }
+        ExecuteMsg::RegisterVestingAccount {
+            address,
+            vesting_schedule,
+        } => {
+            // deposit validation
+            if info.funds.len() != 1 {
+                return Err(StdError::generic_err("must deposit only one type of token"));
+            }
+
+            let deposit_coin = info.funds[0].clone();
+            register_vesting_account(
+                deps,
+                env,
+                info.sender.to_string(),
+                address,
+                Denom::Native(deposit_coin.denom),
+                deposit_coin.amount,
+                vesting_schedule,
+            )
+        }
+        ExecuteMsg::DeregisterVestingAccount {
+            address,
+            denom,
+            vested_token_recipient,
+            left_vesting_token_recipient,
+        } => deregister_vesting_account(
+            deps,
+            env,
+            info,
+            address,
+            denom,
+            vested_token_recipient,
+            left_vesting_token_recipient,
+        ),
+        ExecuteMsg::Claim { denoms, recipient } => claim(deps, env, info, denoms, recipient),
+    }
+}
+
+fn only_master(storage: &dyn Storage, sender: String) -> StdResult<()> {
+    if MASTER_ADDRESS.load(storage)? != sender {
+        return Err(StdError::generic_err("unauthorized"));
+    }
+
+    Ok(())
+}
+fn update_master_address(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+    master_address: String,
+) -> StdResult<Response> {
+    only_master(deps.storage, info.sender.to_string())?;
+
+    MASTER_ADDRESS.save(deps.storage, &master_address)?;
+    Ok(Response::new().add_attributes(vec![
+        ("action", "update_master_address"),
+        ("master_address", master_address.as_str()),
+    ]))
+}
+
+fn register_vesting_account(
     deps: DepsMut,
     env: Env,
-    _info: MessageInfo,
-    msg: ExecuteMsg,
-) -> Result<Response, ContractError> {
-    match msg {
-        ExecuteMsg::Pay {} => execute_pay(deps, env),
-    }
-}
+    sender: String,
+    recipient: String,
+    deposit_denom: Denom,
+    deposit_amount: Uint128,
+    vesting_schedule: VestingSchedule,
+) -> StdResult<Response> {
+    only_master(deps.storage, sender)?;
 
-pub fn execute_pay(deps: DepsMut, env: Env) -> Result<Response, ContractError> {
-    let to_be_paid: Vec<PaymentState> = PAYMENTS
-        .range(deps.storage, None, None, Order::Ascending)
-        .filter_map(|r| match r {
-            Ok(r) => Some(r.1),
-            _ => None,
-        })
-        .filter(|p| !p.paid && p.payment.time.is_expired(&env.block))
-        .collect();
+    let denom_key = denom_to_key(deposit_denom.clone());
 
-    // Get cosmos payment messages
-    let payment_msgs: Vec<CosmosMsg> = to_be_paid
-        .clone()
-        .into_iter()
-        .map(|p| get_payment_message(&p.payment))
-        .collect::<StdResult<Vec<CosmosMsg>>>()?;
-
-    // Update payments to paid
-    for p in to_be_paid.into_iter() {
-        PAYMENTS.update(deps.storage, p.id.into(), |p| match p {
-            Some(p) => Ok(PaymentState { paid: true, ..p }),
-            None => Err(ContractError::PaymentNotFound {}),
-        })?;
+    // vesting_account existence check
+    if VESTING_ACCOUNTS.has(deps.storage, (recipient.as_str(), &denom_key)) {
+        return Err(StdError::generic_err("already exists"));
     }
 
-    Ok(Response::new().add_messages(payment_msgs))
-    //.add_attribute("paid", to_be_paid))
+    // validate vesting schedule
+    vesting_schedule.validate(env.block.time.seconds(), deposit_amount)?;
+
+    VESTING_ACCOUNTS.save(
+        deps.storage,
+        (recipient.as_str(), &denom_key),
+        &VestingAccount {
+            address: recipient.to_string(),
+            vesting_denom: deposit_denom.clone(),
+            vesting_amount: deposit_amount,
+            vesting_schedule,
+            claimed_amount: Uint128::zero(),
+        },
+    )?;
+
+    Ok(Response::new().add_attributes(vec![
+        ("action", "register_vesting_account"),
+        ("address", recipient.as_str()),
+        ("vesting_denom", &to_string(&deposit_denom).unwrap()),
+        ("vesting_amount", &deposit_amount.to_string()),
+    ]))
 }
 
-pub fn get_payment_message(p: &Payment) -> StdResult<CosmosMsg> {
-    get_token_payment(p)
+fn deregister_vesting_account(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    address: String,
+    denom: Denom,
+    vested_token_recipient: Option<String>,
+    left_vesting_token_recipient: Option<String>,
+) -> StdResult<Response> {
+    only_master(deps.storage, info.sender.to_string())?;
+
+    let denom_key = denom_to_key(denom.clone());
+    let sender = info.sender;
+
+    let mut messages: Vec<CosmosMsg> = vec![];
+
+    // vesting_account existence check
+    let account = VESTING_ACCOUNTS.may_load(deps.storage, (address.as_str(), &denom_key))?;
+    if account.is_none() {
+        return Err(StdError::generic_err(format!(
+            "vesting entry is not found for denom {:?}",
+            to_string(&denom).unwrap(),
+        )));
+    }
+
+    let account = account.unwrap();
+
+    // remove vesting account
+    VESTING_ACCOUNTS.remove(deps.storage, (address.as_str(), &denom_key));
+
+    let vested_amount = account
+        .vesting_schedule
+        .vested_amount(env.block.time.seconds())?;
+    let claimed_amount = account.claimed_amount;
+
+    // transfer already vested but not claimed amount to
+    // a account address or the given `vested_token_recipient` address
+    let claimable_amount = vested_amount.checked_sub(claimed_amount)?;
+    if !claimable_amount.is_zero() {
+        let recipient = vested_token_recipient.unwrap_or_else(|| address.to_string());
+        let message: CosmosMsg = match account.vesting_denom.clone() {
+            Denom::Native(denom) => BankMsg::Send {
+                to_address: recipient,
+                amount: vec![Coin {
+                    denom,
+                    amount: claimable_amount,
+                }],
+            }
+                .into(),
+            Denom::Cw20(contract_addr) => WasmMsg::Execute {
+                contract_addr: contract_addr.to_string(),
+                msg: to_binary(&Cw20ExecuteMsg::Transfer {
+                    recipient,
+                    amount: claimable_amount,
+                })?,
+                funds: vec![],
+            }
+                .into(),
+        };
+
+        messages.push(message);
+    }
+
+    // transfer left vesting amount to owner or
+    // the given `left_vesting_token_recipient` address
+    let left_vesting_amount = account.vesting_amount.checked_sub(vested_amount)?;
+    if !left_vesting_amount.is_zero() {
+        let recipient = left_vesting_token_recipient.unwrap_or_else(|| sender.to_string());
+        let message: CosmosMsg = match account.vesting_denom.clone() {
+            Denom::Native(denom) => BankMsg::Send {
+                to_address: recipient,
+                amount: vec![Coin {
+                    denom,
+                    amount: left_vesting_amount,
+                }],
+            }
+                .into(),
+            Denom::Cw20(contract_addr) => WasmMsg::Execute {
+                contract_addr: contract_addr.to_string(),
+                msg: to_binary(&Cw20ExecuteMsg::Transfer {
+                    recipient,
+                    amount: left_vesting_amount,
+                })?,
+                funds: vec![],
+            }
+                .into(),
+        };
+
+        messages.push(message);
+    }
+
+    Ok(Response::new().add_messages(messages).add_attributes(vec![
+        ("action", "deregister_vesting_account"),
+        ("address", address.as_str()),
+        ("vesting_denom", &to_string(&account.vesting_denom).unwrap()),
+        ("vesting_amount", &account.vesting_amount.to_string()),
+        ("vested_amount", &vested_amount.to_string()),
+        ("left_vesting_amount", &left_vesting_amount.to_string()),
+    ]))
 }
 
-pub fn get_token_payment(p: &Payment) -> StdResult<CosmosMsg> {
-    let transfer_cw20_msg = Cw20ExecuteMsg::Transfer {
-        recipient: p.recipient.to_string(),
-        amount: p.amount,
-    };
+fn claim(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    denoms: Vec<Denom>,
+    recipient: Option<String>,
+) -> StdResult<Response> {
+    let sender = info.sender;
+    let recipient = recipient.unwrap_or_else(|| sender.to_string());
 
-    let exec_cw20_transfer = WasmMsg::Execute {
-        contract_addr: p.token_address.clone().to_string(),
-        msg: to_binary(&transfer_cw20_msg)?,
-        funds: vec![],
-    };
+    let mut messages: Vec<CosmosMsg> = vec![];
+    let mut attrs: Vec<Attribute> = vec![];
+    for denom in denoms.iter() {
+        let denom_key = denom_to_key(denom.clone());
 
-    Ok(exec_cw20_transfer.into())
+        // vesting_account existence check
+        let account = VESTING_ACCOUNTS.may_load(deps.storage, (sender.as_str(), &denom_key))?;
+        if account.is_none() {
+            return Err(StdError::generic_err(format!(
+                "vesting entry is not found for denom {}",
+                to_string(&denom).unwrap(),
+            )));
+        }
+
+        let mut account = account.unwrap();
+        let vested_amount = account
+            .vesting_schedule
+            .vested_amount(env.block.time.seconds())?;
+        let claimed_amount = account.claimed_amount;
+
+        let claimable_amount = vested_amount.checked_sub(claimed_amount)?;
+        if claimable_amount.is_zero() {
+            continue;
+        }
+
+        account.claimed_amount = vested_amount;
+        if account.claimed_amount == account.vesting_amount {
+            VESTING_ACCOUNTS.remove(deps.storage, (sender.as_str(), &denom_key));
+        } else {
+            VESTING_ACCOUNTS.save(deps.storage, (sender.as_str(), &denom_key), &account)?;
+        }
+
+        let message: CosmosMsg = match account.vesting_denom.clone() {
+            Denom::Native(denom) => BankMsg::Send {
+                to_address: recipient.clone(),
+                amount: vec![Coin {
+                    denom,
+                    amount: claimable_amount,
+                }],
+            }
+                .into(),
+            Denom::Cw20(contract_addr) => WasmMsg::Execute {
+                contract_addr: contract_addr.to_string(),
+                msg: to_binary(&Cw20ExecuteMsg::Transfer {
+                    recipient: recipient.clone(),
+                    amount: claimable_amount,
+                })?,
+                funds: vec![],
+            }
+                .into(),
+        };
+
+        messages.push(message);
+        attrs.extend(
+            vec![
+                Attribute::new("vesting_denom", &to_string(&account.vesting_denom).unwrap()),
+                Attribute::new("vesting_amount", &account.vesting_amount.to_string()),
+                Attribute::new("vested_amount", &vested_amount.to_string()),
+                Attribute::new("claim_amount", &claimable_amount.to_string()),
+            ]
+                .into_iter(),
+        );
+    }
+
+    Ok(Response::new()
+        .add_messages(messages)
+        .add_attributes(vec![("action", "claim"), ("address", sender.as_str())])
+        .add_attributes(attrs))
+}
+
+pub fn receive_cw20(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    cw20_msg: Cw20ReceiveMsg,
+) -> StdResult<Response> {
+    let amount = cw20_msg.amount;
+    let sender = cw20_msg.sender;
+    let contract = info.sender;
+
+    match from_binary(&cw20_msg.msg) {
+        Ok(Cw20HookMsg::RegisterVestingAccount {
+               address,
+               vesting_schedule,
+           }) => register_vesting_account(
+            deps,
+            env,
+            sender,
+            address,
+            Denom::Cw20(contract),
+            amount,
+            vesting_schedule,
+        ),
+        Err(_) => Err(StdError::generic_err("invalid cw20 hook message")),
+    }
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::GetPayments {} => to_binary(&query_payments(deps)),
+        QueryMsg::MasterAddress {} => to_binary(&master_address(deps, env)?),
+        QueryMsg::VestingAccount {
+            address,
+            start_after,
+            limit,
+        } => to_binary(&vesting_account(deps, env, address, start_after, limit)?),
     }
 }
 
-fn query_payments(deps: Deps) -> PaymentsResponse {
-    PaymentsResponse {
-        payments: PAYMENTS
-            .range(deps.storage, None, None, Order::Ascending)
-            .filter_map(|p| match p {
-                Ok(p) => Some(p.1),
-                Err(_) => None,
-            })
-            .collect(),
-    }
+fn master_address(deps: Deps, _env: Env) -> StdResult<MasterAddressResponse> {
+    let master_address = MASTER_ADDRESS.load(deps.storage)?;
+    Ok(MasterAddressResponse { master_address })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info, MockApi, MockStorage};
-    use cosmwasm_std::{coin, coins, from_binary, Addr, Empty, Uint128};
-    use cw20::{Cw20Coin, Cw20Contract};
-    use std::borrow::Cow::Owned;
-    use std::fmt::Error;
-    use cw_utils::Expiration;
+const MAX_LIMIT: u32 = 30;
+const DEFAULT_LIMIT: u32 = 10;
+fn vesting_account(
+    deps: Deps,
+    env: Env,
+    address: String,
+    start_after: Option<Denom>,
+    limit: Option<u32>,
+) -> StdResult<VestingAccountResponse> {
+    let mut vestings: Vec<VestingData> = vec![];
+    let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
 
-    const OWNER: &str = "owner0001";
-    const FUNDER: &str = "funder";
-    const PAYEE2: &str = "payee0002";
-    const PAYEE3: &str = "payee0003";
-    const TOKEN1: &str = "token0000";
-
-    const NATIVE_TOKEN_DENOM: &str = "ujuno";
-    const INITIAL_BALANCE: u128 = 2000000;
-
-    fn get_accounts() -> (Addr, Addr, Addr, Addr, Addr) {
-        let owner: Addr = Addr::unchecked(OWNER);
-        let funder: Addr = Addr::unchecked(FUNDER);
-        let voter2: Addr = Addr::unchecked(PAYEE2);
-        let voter3: Addr = Addr::unchecked(PAYEE3);
-        let token1: Addr = Addr::unchecked(TOKEN1);
-
-        (owner, funder, voter2, voter3, token1)
-    }
-
-    #[test]
-    fn proper_initialization() {
-        let mut deps = mock_dependencies();
-        let (owner, _, _, _, _) = get_accounts();
-
-        let msg = InstantiateMsg { schedule: vec![] };
-        let info = mock_info("creator", &coins(1000, NATIVE_TOKEN_DENOM));
-
-        // we can just call .unwrap() to assert this was a success
-        let res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
-        assert_eq!(0, res.messages.len());
-
-        // it worked, let's query the state
-        let res = query(deps.as_ref(), mock_env(), QueryMsg::GetPayments {}).unwrap();
-        let value: PaymentsResponse = from_binary(&res).unwrap();
-        assert_eq!(0, value.payments.len());
-    }
-
-    #[test]
-    fn get_payments() {
-        let mut deps = mock_dependencies();
-        let (owner, _, _, _, token1) = get_accounts();
-
-        let payment = Payment {
-            recipient: Addr::unchecked(String::from("test")),
-            amount: Uint128::new(1),
-            denom: "".to_string(),
-            token_address: token1,
-            time: Expiration::AtHeight(1),
-        };
-        let payment2 = payment.clone();
-        let msg = InstantiateMsg {
-            schedule: vec![payment.clone(), payment2],
-        };
-        let info = mock_info("creator", &coins(1000, "earth"));
-
-        // we can just call .unwrap() to assert this was a success
-        let res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
-        assert_eq!(0, res.messages.len());
-
-        // it worked, let's query the state
-        let res = query(deps.as_ref(), mock_env(), QueryMsg::GetPayments {}).unwrap();
-        let value: PaymentsResponse = from_binary(&res).unwrap();
-        assert_eq!(2, value.payments.len());
-    }
-
-    // #[test]
-    // fn proper_initialization_integration() {
-    //     let mut deps = mock_dependencies();
-    //
-    //     let (owner, funder, _payee2, _payee3) = get_accounts();
-    //
-    //     let cw20_addr = instantiate_cw20(&mut app);
-    //     let cw20 = Cw20Contract(cw20_addr.clone());
-    //
-    //     let payments = vec![Payment {
-    //         recipient: owner,
-    //         amount: Uint128::new(1),
-    //         denom: cw20_addr.to_string(),
-    //         token_address: None,
-    //         time: Default::default(),
-    //     }];
-    //
-    //     let vest_addr = instantiate_vest(&mut app, payments);
-    // }
-    //
-    #[test]
-    fn single_cw20_payment() {
-        let mut app = mock_app();
-
-        let (owner, funder, _payee2, _payee3, token1) = get_accounts();
-
-        let payments = vec![Payment {
-            recipient: owner.clone(),
-            amount: Uint128::new(1),
-            denom: cw20_addr.to_string(),
-            token_address: token1,
-            time: Expiration::AtHeight(1),
-        }];
-
-        let vest_addr = instantiate_vest(&mut app, payments);
-
-        fund_vest_contract(
-            &mut app,
-            vest_addr.clone(),
-            cw20_addr.clone(),
-            funder.clone(),
-            Uint128::new(1),
-        );
-
-        let owner_balance = |app: &App<Empty>| cw20.balance(app, owner.clone()).unwrap().u128();
-        let initial_balance = owner_balance(&app);
-        let vest_balance = cw20.balance(&app, vest_addr.clone()).unwrap().u128();
-        assert_eq!(vest_balance, 1);
-
-        // Payout vested tokens
-        app.execute_contract(
-            _payee3.clone(),
-            vest_addr.clone(),
-            &ExecuteMsg::Pay {},
-            &vec![],
+    for item in VESTING_ACCOUNTS
+        .prefix(address.as_str())
+        .range(
+            deps.storage,
+            start_after
+                .map(denom_to_key)
+                .map(|v| v.as_bytes().to_vec())
+                .map(Bound::ExclusiveRaw),
+            None,
+            Order::Ascending,
         )
-            .unwrap();
-        assert_eq!(owner_balance(&app), initial_balance + 1);
+        .take(limit)
+    {
+        let (_, account) = item?;
+        let vested_amount = account
+            .vesting_schedule
+            .vested_amount(env.block.time.seconds())?;
 
-        // Assert payment is not executed twice
-        app.execute_contract(_payee3, vest_addr, &ExecuteMsg::Pay {}, &vec![])
-            .unwrap();
-        assert_eq!(owner_balance(&app), initial_balance + 1);
+        vestings.push(VestingData {
+            vesting_denom: account.vesting_denom,
+            vesting_amount: account.vesting_amount,
+            vested_amount,
+            vesting_schedule: account.vesting_schedule,
+            claimable_amount: vested_amount.checked_sub(account.claimed_amount)?,
+        })
     }
-    //
-    // #[test]
-    // fn multiple_cw20_payment() {
-    //     let mut app = mock_app();
-    //
-    //     let (owner, funder, _payee2, _payee3) = get_accounts();
-    //
-    //     let cw20_addr = instantiate_cw20(&mut app);
-    //     let cw20 = Cw20Contract(cw20_addr.clone());
-    //
-    //     let current_height = app.block_info().height;
-    //
-    //     let payments = vec![
-    //         Payment {
-    //             recipient: owner.clone(),
-    //             amount: Uint128::new(1),
-    //             denom: cw20_addr.to_string(),
-    //             token_address: Some(cw20_addr.clone()),
-    //             time: Expiration::AtHeight(current_height + 1),
-    //         },
-    //         Payment {
-    //             recipient: owner.clone(),
-    //             amount: Uint128::new(2),
-    //             denom: cw20_addr.to_string(),
-    //             token_address: Some(cw20_addr.clone()),
-    //             time: Expiration::AtHeight(current_height + 2),
-    //         },
-    //         Payment {
-    //             recipient: owner.clone(),
-    //             amount: Uint128::new(2),
-    //             denom: cw20_addr.to_string(),
-    //             token_address: Some(cw20_addr.clone()),
-    //             time: Expiration::AtHeight(current_height + 2),
-    //         },
-    //         Payment {
-    //             recipient: owner.clone(),
-    //             amount: Uint128::new(5),
-    //             denom: cw20_addr.to_string(),
-    //             token_address: Some(cw20_addr.clone()),
-    //             time: Expiration::AtHeight(current_height + 3),
-    //         },
-    //     ];
-    //
-    //     let vest_addr = instantiate_vest(&mut app, payments);
-    //
-    //     fund_vest_contract(
-    //         &mut app,
-    //         vest_addr.clone(),
-    //         cw20_addr.clone(),
-    //         funder.clone(),
-    //         Uint128::new(10),
-    //     );
-    //
-    //     let owner_balance = |app: &App<Empty>| cw20.balance(app, owner.clone()).unwrap().u128();
-    //     let initial_balance = owner_balance(&app);
-    //     let vest_balance = cw20.balance(&app, vest_addr.clone()).unwrap().u128();
-    //     assert_eq!(vest_balance, 10);
-    //
-    //     // Payout vested tokens
-    //     app.execute_contract(
-    //         _payee3.clone(),
-    //         vest_addr.clone(),
-    //         &ExecuteMsg::Pay {},
-    //         &vec![],
-    //     )
-    //         .unwrap();
-    //
-    //     assert_eq!(owner_balance(&app), initial_balance);
-    //
-    //     // Update block and pay first payment
-    //     app.update_block(next_block);
-    //     app.execute_contract(
-    //         _payee3.clone(),
-    //         vest_addr.clone(),
-    //         &ExecuteMsg::Pay {},
-    //         &vec![],
-    //     )
-    //         .unwrap();
-    //     assert_eq!(owner_balance(&app), initial_balance + 1);
-    //
-    //     // Check second call does not make more payments
-    //     app.execute_contract(
-    //         _payee3.clone(),
-    //         vest_addr.clone(),
-    //         &ExecuteMsg::Pay {},
-    //         &vec![],
-    //     )
-    //         .unwrap();
-    //     assert_eq!(owner_balance(&app), initial_balance + 1);
-    //
-    //     // Update block and make 2nd and 3rd payments
-    //     app.update_block(next_block);
-    //     app.execute_contract(
-    //         _payee3.clone(),
-    //         vest_addr.clone(),
-    //         &ExecuteMsg::Pay {},
-    //         &vec![],
-    //     )
-    //         .unwrap();
-    //     assert_eq!(owner_balance(&app), initial_balance + 5);
-    //
-    //     // Check second call does not make more payments
-    //     app.execute_contract(
-    //         _payee3.clone(),
-    //         vest_addr.clone(),
-    //         &ExecuteMsg::Pay {},
-    //         &vec![],
-    //     )
-    //         .unwrap();
-    //     assert_eq!(owner_balance(&app), initial_balance + 5);
-    //
-    //     // Update block and make 4th payments
-    //     app.update_block(next_block);
-    //     app.execute_contract(
-    //         _payee3.clone(),
-    //         vest_addr.clone(),
-    //         &ExecuteMsg::Pay {},
-    //         &vec![],
-    //     )
-    //         .unwrap();
-    //     assert_eq!(owner_balance(&app), initial_balance + 10);
-    //
-    //     // Check second call does not make more payments
-    //     app.execute_contract(
-    //         _payee3.clone(),
-    //         vest_addr.clone(),
-    //         &ExecuteMsg::Pay {},
-    //         &vec![],
-    //     )
-    //         .unwrap();
-    //     assert_eq!(owner_balance(&app), initial_balance + 10);
-    //
-    //     // Assert contract has spent all funds
-    //     let vest_balance = cw20.balance(&app, vest_addr.clone()).unwrap().u128();
-    //     assert_eq!(vest_balance, 0);
-    // }
+
+    Ok(VestingAccountResponse { address, vestings })
 }
