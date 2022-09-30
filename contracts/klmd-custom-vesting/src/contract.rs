@@ -6,6 +6,9 @@ use cw20::Cw20ExecuteMsg;
 
 use crate::{msg::{InstantiateMsg, ExecuteMsg, QueryMsg, OwnerAddressResponse, VestingAccountResponse, VestingData, TokenAddressResponse}, state::{OWNER_ADDRESS, TOKEN_ADDRESS, ACCOUNTS, Account}};
 
+pub(crate) const CONTRACT_NAME: &str = "crates.io:klmd-custom-vesting";
+pub(crate) const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
@@ -13,6 +16,7 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> StdResult<Response> {
+    set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     let owner_address = msg.owner_address.unwrap_or(info.sender);
     OWNER_ADDRESS.save(deps.storage, &owner_address)?;
 
@@ -27,10 +31,10 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         ExecuteMsg::UpdateOwnerAddress { address } => {
             update_owner_address(deps, env, info, address)
         },
-        ExecuteMsg::DeregisterVestingAccount { 
-            address, 
-            vested_token_recipient, 
-            left_vesting_token_recipient 
+        ExecuteMsg::DeregisterVestingAccount {
+            address,
+            vested_token_recipient,
+            left_vesting_token_recipient
         } => deregister_vesting_account(deps, env, info, address, vested_token_recipient, left_vesting_token_recipient),
         ExecuteMsg::RegisterVestingAccount {
             address,
@@ -165,7 +169,7 @@ fn claim(deps: DepsMut, env: Env, info: MessageInfo, recipient: Option<Addr>) ->
     let claimed_amount = account.claimed_amount;
 
     let claimable_amount = vested_amount.checked_sub(claimed_amount)?;
-    
+
     account.claimed_amount = vested_amount;
     if account.claimed_amount == account.vesting_amount {
         ACCOUNTS.remove(deps.storage, &_recipient);
@@ -196,6 +200,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::OwnerAddress {} => to_binary(&query_owner_address(deps, env)?),
         QueryMsg::VestingAccount {
             address,
+            height,
         } => to_binary(&query_vesting_account(deps, env, address)?),
         QueryMsg::TokenAddress {} => to_binary(&query_token_address(deps, env)?),
     }
@@ -215,7 +220,7 @@ fn query_token_address(deps: Deps, _env: Env) -> StdResult<TokenAddressResponse>
     })
 }
 
-fn query_vesting_account(deps: Deps, env: Env, address: Addr) -> StdResult<VestingAccountResponse> {
+fn query_vesting_account(deps: Deps, env: Env, address: Addr, height: Option<u64>) -> StdResult<VestingAccountResponse> {
     let account = ACCOUNTS.load(deps.storage, &address)?;
 
     let vested_amount = account.vested_amount(&env.block)?;
@@ -301,13 +306,13 @@ mod testing {
 
         assert_eq!(vesting_response, VestingAccountResponse {
             address: Addr::unchecked("addr0002".to_string()),
-            vestings: VestingData { 
-                vesting_amount: Uint128::from(100u32), 
-                vested_amount: Uint128::from(100u32), 
+            vestings: VestingData {
+                vesting_amount: Uint128::from(100u32),
+                vested_amount: Uint128::from(100u32),
                 claimable_amount: Uint128::from(100u32),
                 claimed_amount: Uint128::zero(),
-                start_time: Timestamp::from_nanos(100), 
-                end_time: Timestamp::from_nanos(200), 
+                start_time: Timestamp::from_nanos(100),
+                end_time: Timestamp::from_nanos(200),
             },
         })
     }
@@ -345,13 +350,13 @@ mod testing {
 
         assert_eq!(vesting_response, VestingAccountResponse {
             address: Addr::unchecked("addr0002".to_string()),
-            vestings: VestingData { 
-                vesting_amount: Uint128::from(100u32), 
-                vested_amount: Uint128::from(99u32), 
-                claimable_amount: Uint128::from(99u32), 
+            vestings: VestingData {
+                vesting_amount: Uint128::from(100u32),
+                vested_amount: Uint128::from(99u32),
+                claimable_amount: Uint128::from(99u32),
                 claimed_amount: Uint128::zero(),
-                start_time: Timestamp::from_nanos(100), 
-                end_time: Timestamp::from_nanos(200), 
+                start_time: Timestamp::from_nanos(100),
+                end_time: Timestamp::from_nanos(200),
             },
         });
 
@@ -367,13 +372,13 @@ mod testing {
 
         assert_eq!(vesting_response, VestingAccountResponse {
             address: Addr::unchecked("addr0002".to_string()),
-            vestings: VestingData { 
-                vesting_amount: Uint128::from(100u32), 
-                vested_amount: Uint128::from(99u32), 
+            vestings: VestingData {
+                vesting_amount: Uint128::from(100u32),
+                vested_amount: Uint128::from(99u32),
                 claimable_amount: Uint128::from(0u32),
-                claimed_amount: Uint128::from(99u32), 
-                start_time: Timestamp::from_nanos(100), 
-                end_time: Timestamp::from_nanos(200), 
+                claimed_amount: Uint128::from(99u32),
+                start_time: Timestamp::from_nanos(100),
+                end_time: Timestamp::from_nanos(200),
             },
         })
     }

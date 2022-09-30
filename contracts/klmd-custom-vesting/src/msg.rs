@@ -37,6 +37,7 @@ pub enum QueryMsg {
     TokenAddress {},
     VestingAccount {
         address: Addr,
+        height: Option<u64>,
     },
 }
 

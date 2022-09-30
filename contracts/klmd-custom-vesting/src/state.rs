@@ -1,7 +1,8 @@
 use cw_storage_plus::{Map, Item};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use cosmwasm_std::{Timestamp, Addr, Uint128, BlockInfo, StdResult, StdError};
+use cosmwasm_std::{Timestamp, Addr, Uint128, BlockInfo, StdResult, StdError, Deps};
+use cw_utils::Duration::Height;
 
 pub const ACCOUNTS: Map<&Addr, Account> = Map::new("accounts");
 pub const TOKEN_ADDRESS: Item<Addr> = Item::new("token_address");
@@ -34,7 +35,8 @@ impl Account {
         Ok(())
     }
 
-    pub fn vested_amount(&self, block_info: &BlockInfo) -> StdResult<Uint128> {
+    pub fn vested_amount(&self, block_info: &BlockInfo, height: Option<u64>) -> StdResult<Uint128> {
+        let input_time =
         if block_info.time < self.start_time {
             return Ok(Uint128::zero());
         }
@@ -68,14 +70,14 @@ mod test {
         };
         let mut env = mock_env();
         env.block.time = Timestamp::from_nanos(50);
-        
+
         let vested_tokens = account.vested_amount(&env.block).unwrap();
 
         assert_eq!(vested_tokens, Uint128::new(50));
 
         let mut env = mock_env();
         env.block.time = Timestamp::from_nanos(0);
-        
+
         let vested_tokens = account.vested_amount(&env.block).unwrap();
 
         assert_eq!(vested_tokens, Uint128::new(0));
@@ -83,7 +85,7 @@ mod test {
 
         let mut env = mock_env();
         env.block.time = Timestamp::from_nanos(102);
-        
+
         let vested_tokens = account.vested_amount(&env.block).unwrap();
 
         assert_eq!(vested_tokens, Uint128::new(100));
