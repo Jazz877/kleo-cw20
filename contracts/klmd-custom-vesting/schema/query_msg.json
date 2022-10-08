@@ -41,22 +41,18 @@
             "address": {
               "$ref": "#/definitions/Addr"
             },
-            "limit": {
+            "height": {
               "type": [
                 "integer",
                 "null"
               ],
-              "format": "uint32",
+              "format": "uint64",
               "minimum": 0.0
             },
-            "start_after": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/Addr"
-                },
-                {
-                  "type": "null"
-                }
+            "with_payments": {
+              "type": [
+                "boolean",
+                "null"
               ]
             }
           }

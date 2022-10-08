@@ -25,6 +25,26 @@
     {
       "type": "object",
       "required": [
+        "update_block_time"
+      ],
+      "properties": {
+        "update_block_time": {
+          "type": "object",
+          "required": [
+            "block_time"
+          ],
+          "properties": {
+            "block_time": {
+              "$ref": "#/definitions/Uint64"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
         "register_vesting_account"
       ],
       "properties": {
