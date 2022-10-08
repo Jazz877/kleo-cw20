@@ -135,13 +135,28 @@ pub fn query_voting_power_at_height(
     let vesting_contract = VESTING_CONTRACT.load(deps.storage)?;
     let address = deps.api.addr_validate(&address)?;
 
-    let res: cw20_stake::msg::StakedBalanceAtHeightResponse = deps.querier.query_wasm_smart(
+    let vest_res: klmd_custom_vesting::msg::VestingAccountResponse = deps.querier.query_wasm_smart(
+        vesting_contract,
+        &klmd_custom_vesting::msg::QueryMsg::VestingAccount {
+            address,
+            height,
+        },
+    )?;
+    let stake_res: cw20_stake::msg::StakedBalanceAtHeightResponse = deps.querier.query_wasm_smart(
         staking_contract,
         &cw20_stake::msg::QueryMsg::StakedBalanceAtHeight {
             address: address.to_string(),
             height,
         },
     )?;
+
+    let voting_power_ratio = VOTING_POWER_RATIO.load(deps.storage)?;
+
+    let voting_power = Decimal::from_ratio(
+        vest_res.vestings.vested_amount - vest_res.vestings.vesting_amount,
+        voting_power_ratio,
+    );
+
     to_binary(&cw_core_interface::voting::VotingPowerAtHeightResponse {
         power: res.balance,
         height: res.height,
