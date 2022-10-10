@@ -1,5 +1,3 @@
-use std::thread::AccessError;
-
 use cw_storage_plus::{Item, Strategy, Map, SnapshotMap, SnapshotItem};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

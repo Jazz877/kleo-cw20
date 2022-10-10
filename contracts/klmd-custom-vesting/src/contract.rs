@@ -90,13 +90,13 @@ fn update_owner_address(deps: DepsMut, _env: Env, info: MessageInfo, owner_addre
 }
 
 fn compute_total_vesting_info(account_vesting_data: Vec<VestingData>) -> StdResult<TotalVestingInfo> {
-    let mut total_vested;
-    let mut total_claimed;
-    let mut total_vesting;
+    let mut total_vested = Uint128::zero();
+    let mut total_claimed= Uint128::zero();
+    let mut total_vesting= Uint128::zero();
     for account_data in account_vesting_data.into_iter() {
         total_vested += account_data.vested_amount;
         total_claimed += account_data.claimed_amount;
-        total_vested += account_data.vesting_amount;
+        total_vesting += account_data.vesting_amount;
     }
 
     Ok(
@@ -349,7 +349,7 @@ mod testing {
 
         env.block.time = Timestamp::from_nanos(300);
         let res = query(deps.as_ref(), env.clone(), QueryMsg::VestingAccount {
-            address: Addr::unchecked("addr0002".to_string()),
+            address: Addr::unchecked("addr0002".to_string()), height: None,
         }).unwrap();
         let vesting_response: VestingAccountResponse = from_binary(&res).unwrap();
 
@@ -393,7 +393,7 @@ mod testing {
 
         env.block.time = Timestamp::from_nanos(199);
         let res = query(deps.as_ref(), env.clone(), QueryMsg::VestingAccount {
-            address: Addr::unchecked("addr0002".to_string()),
+            address: Addr::unchecked("addr0002".to_string()), height: None,
         }).unwrap();
         let vesting_response: VestingAccountResponse = from_binary(&res).unwrap();
 
@@ -415,7 +415,7 @@ mod testing {
         let info = mock_info("addr0002", &[]);
         let _ = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
         let res = query(deps.as_ref(), env.clone(), QueryMsg::VestingAccount {
-            address: Addr::unchecked("addr0002".to_string()),
+            address: Addr::unchecked("addr0002".to_string()), height: None,
         }).unwrap();
         let vesting_response: VestingAccountResponse = from_binary(&res).unwrap();
 
