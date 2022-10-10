@@ -1,14 +1,13 @@
-use cosmwasm_std::{Addr, Timestamp, Uint128, Uint64};
+use cosmwasm_std::{Addr, Uint128, Timestamp};
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::{Serialize, Deserialize};
 
-use crate::state::Payment;
+use crate::state::VestingData;
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct InstantiateMsg {
     pub owner_address: Option<Addr>,
     pub token_address: Addr,
-    pub block_time: Uint64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -16,9 +15,6 @@ pub struct InstantiateMsg {
 pub enum ExecuteMsg {
     UpdateOwnerAddress {
         address: Addr,
-    },
-    UpdateBlockTime {
-        block_time: Uint64,
     },
     RegisterVestingAccount {
         address: Addr,
@@ -34,6 +30,7 @@ pub enum ExecuteMsg {
     Claim {
         recipient: Option<Addr>,
     },
+    Snapshot {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -43,8 +40,6 @@ pub enum QueryMsg {
     TokenAddress {},
     VestingAccount {
         address: Addr,
-        height: Option<u64>,
-        with_payments: Option<bool>,
     },
 }
 
@@ -62,15 +57,4 @@ pub struct TokenAddressResponse {
 pub struct VestingAccountResponse {
     pub address: Addr,
     pub vestings: VestingData,
-}
-
-#[derive(Serialize, Deserialize, JsonSchema, PartialEq, Debug)]
-pub struct VestingData {
-    pub vesting_amount: Uint128,
-    pub vested_amount: Uint128,
-    pub claimable_amount: Uint128,
-    pub claimed_amount: Uint128,
-    pub start_time: Timestamp,
-    pub end_time: Timestamp,
-    pub scheduled_payments: Option<Vec<Payment>>,
 }
