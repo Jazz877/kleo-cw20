@@ -25,8 +25,9 @@ pub const VESTING_TOTAL: SnapshotItem<TotalVestingInfo> = SnapshotItem::new(
 pub const TOKEN_ADDRESS: Item<Addr> = Item::new("token_address");
 pub const OWNER_ADDRESS: Item<Addr> = Item::new("owner_address");
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug, Default)]
 pub struct TotalVestingInfo {
+    pub vesting_amount: Uint128,
     pub vested_amount: Uint128,
     pub claimed_amount: Uint128,
 }
@@ -48,6 +49,19 @@ pub struct VestingData {
     pub claimed_amount: Uint128,
     pub start_time: Timestamp,
     pub end_time: Timestamp,
+}
+
+impl Default for VestingData {
+    fn default() -> Self {
+        VestingData {
+            vesting_amount: Uint128::zero(),
+            vested_amount: Uint128::zero(),
+            claimable_amount: Uint128::zero(),
+            claimed_amount: Uint128::zero(),
+            start_time: Timestamp::default(),
+            end_time: Timestamp::default(),
+        }
+    }
 }
 
 impl Account {

@@ -4,7 +4,7 @@ use cosmwasm_std::entry_point;
 use cosmwasm_std::{DepsMut, Env, MessageInfo, StdResult, Response, Addr, StdError, Storage, Timestamp, Uint128, WasmMsg, to_binary, attr, Binary, Deps, Order, Uint64};
 use cw20::Cw20ExecuteMsg;
 
-use crate::{msg::{InstantiateMsg, ExecuteMsg, QueryMsg, OwnerAddressResponse, VestingAccountResponse, TokenAddressResponse}, state::{OWNER_ADDRESS, TOKEN_ADDRESS, ACCOUNTS, Account, VestingData, TotalVestingInfo, VESTING_TOTAL, VESTING_DATA, get_vesting_data_from_account}};
+use crate::{msg::{InstantiateMsg, ExecuteMsg, QueryMsg, OwnerAddressResponse, VestingAccountResponse, TokenAddressResponse, VestingTotalResponse}, state::{OWNER_ADDRESS, TOKEN_ADDRESS, ACCOUNTS, Account, VestingData, TotalVestingInfo, VESTING_TOTAL, VESTING_DATA, get_vesting_data_from_account}};
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -19,6 +19,7 @@ pub fn instantiate(
     let token_address = msg.token_address;
     TOKEN_ADDRESS.save(deps.storage, &token_address)?;
     let vesting_info = TotalVestingInfo {
+        vesting_amount: Uint128::zero(),
         vested_amount: Uint128::zero(),
         claimed_amount: Uint128::zero(),
     };
@@ -56,25 +57,26 @@ fn only_owner(storage: &dyn Storage, sender: Addr) -> StdResult<()> {
     Ok(())
 }
 
-fn snapshot(deps: DepsMut, _env: Env, info: MessageInfo) -> StdResult<Response> {
+fn snapshot(deps: DepsMut, _env: Env, _info: MessageInfo) -> StdResult<Response> {
     let accounts_addr: Vec<Addr> = ACCOUNTS
         .keys(deps.storage, None, None, Order::Ascending)
         .map(|item| item.map(Into::into))
         .collect::<StdResult<_>>()?;
 
-    let account_vest_data: Vec<VestingAccountResponse> = accounts_addr
+    let account_vest_data: Vec<(Addr, VestingData)> = accounts_addr
         .into_iter()
-        .map(| addr | ACCOUNTS.load(deps.storage, &addr))
-        .map(| account| a)
+        .map(| addr | ACCOUNTS.load(deps.storage, &addr).unwrap())
+        .map(| account| (account.clone().address, get_vesting_data_from_account(account.clone(), &_env.block).unwrap()))
         .collect();
 
-    for account_data in account_vest_data.into_iter() {
-        VESTING_DATA.save(deps.storage, &account_data.address, &account_data.vestings, _env.block.height)?;
+    for (addr, account_data) in account_vest_data.iter() {
+        VESTING_DATA.save(deps.storage, &addr, &account_data, _env.block.height)?;
     }
-
-    let total_vesting_info = compute_total_vesting_info(account_vest_data)?;
+    let (_, data): (Vec<Addr>, Vec<VestingData>) = account_vest_data.into_iter().unzip();
+    let total_vesting_info = compute_total_vesting_info(data)?;
 
     VESTING_TOTAL.save(deps.storage, &total_vesting_info, _env.block.height)?;
+    
 
     Ok(Response::new().add_attribute("action", "snapshot").add_attribute("height", Uint64::new(_env.block.height)))
 }
@@ -87,16 +89,19 @@ fn update_owner_address(deps: DepsMut, _env: Env, info: MessageInfo, owner_addre
     Ok(Response::new().add_attribute("action", "update_owner_address").add_attribute("owner_address", &owner_address))
 }
 
-fn compute_total_vesting_info(account_vesting_data: Vec<VestingAccountResponse>) -> StdResult<TotalVestingInfo> {
+fn compute_total_vesting_info(account_vesting_data: Vec<VestingData>) -> StdResult<TotalVestingInfo> {
     let mut total_vested;
     let mut total_claimed;
+    let mut total_vesting;
     for account_data in account_vesting_data.into_iter() {
-        total_vested += account_data.vestings.vested_amount;
-        total_claimed += account_data.vestings.claimed_amount;
+        total_vested += account_data.vested_amount;
+        total_claimed += account_data.claimed_amount;
+        total_vested += account_data.vesting_amount;
     }
 
     Ok(
         TotalVestingInfo {
+            vesting_amount: total_vesting,
             vested_amount: total_vested,
             claimed_amount: total_claimed,
         }
@@ -124,21 +129,7 @@ fn register_vesting_account(deps: DepsMut, env: Env, _info: MessageInfo, address
         &account,
     )?;
 
-    let vested_amount = account.vested_amount(&env.block)?;
-    let claimed_amount = account.claimed_amount;
-
-    let claimable_amount = vested_amount.checked_sub(claimed_amount)?;
-
-    let vesting_data = VestingData {
-        vesting_amount: account.vesting_amount,
-        vested_amount,
-        start_time: account.start_time,
-        end_time: account.end_time,
-        claimable_amount: claimable_amount,
-        claimed_amount: account.claimed_amount,
-    };
-
-    VESTING_DATA.save(deps.storage, &account.address, &vesting_data, env.block.height)?;
+    let _ = snapshot(deps, env, _info)?;
 
     Ok(Response::new()
         .add_attribute("action", "register_vesting_account")
@@ -162,6 +153,9 @@ fn deregister_vesting_account(deps: DepsMut, env: Env, info: MessageInfo, addres
 
     // remove vesting account
     ACCOUNTS.remove(deps.storage, &address);
+
+    let _ = snapshot(deps, env.clone(), info.clone())?; // save current snapshot
+    //VESTING_DATA.remove(deps.storage, &address, env.block.height)?;
 
     let vested_amount = account
         .vested_amount(&env.block)?;
@@ -211,7 +205,7 @@ fn deregister_vesting_account(deps: DepsMut, env: Env, info: MessageInfo, addres
 
 fn claim(deps: DepsMut, env: Env, info: MessageInfo, recipient: Option<Addr>) -> StdResult<Response> {
     let _recipient = match recipient {
-        None => info.sender,
+        None => info.clone().sender,
         Some(addr) => addr,
     };
     let token_address = TOKEN_ADDRESS.load(deps.storage)?;
@@ -233,6 +227,7 @@ fn claim(deps: DepsMut, env: Env, info: MessageInfo, recipient: Option<Addr>) ->
     } else {
         ACCOUNTS.save(deps.storage, &_recipient, &account)?;
     }
+    let _ = snapshot(deps, env.clone(), info.clone())?;
 
     let res = Response::new()
         .add_message(WasmMsg::Execute {
@@ -257,8 +252,10 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::OwnerAddress {} => to_binary(&query_owner_address(deps, env)?),
         QueryMsg::VestingAccount {
             address,
-        } => to_binary(&query_vesting_account(deps, env, address)?),
+            height,
+        } => to_binary(&query_vesting_account(deps, env, address, height)?),
         QueryMsg::TokenAddress {} => to_binary(&query_token_address(deps, env)?),
+        QueryMsg::VestingTotal { height } => to_binary(&query_vesting_total(deps, env, height)?),
     }
 }
 
@@ -276,10 +273,18 @@ fn query_token_address(deps: Deps, _env: Env) -> StdResult<TokenAddressResponse>
     })
 }
 
-fn query_vesting_account(deps: Deps, env: Env, address: Addr) -> StdResult<VestingAccountResponse> {
-    let account = ACCOUNTS.load(deps.storage, &address)?;
+fn query_vesting_total(deps: Deps, env: Env, height: Option<u64>) -> StdResult<VestingTotalResponse> {
+    let input_height = height.unwrap_or(env.block.height);
+    let total_vesting_info = VESTING_TOTAL.may_load_at_height(deps.storage, input_height)?.unwrap_or_default();
 
-    let vesting_data = get_vesting_data_from_account(account, &env.block)?;
+    Ok(VestingTotalResponse {
+        info: total_vesting_info,
+    })
+}
+
+fn query_vesting_account(deps: Deps, env: Env, address: Addr, height: Option<u64>) -> StdResult<VestingAccountResponse> {
+    let input_height = height.unwrap_or(env.block.height);
+    let vesting_data = VESTING_DATA.may_load_at_height(deps.storage, &address, input_height)?.unwrap_or_default();
 
     Ok(VestingAccountResponse { address, vestings: vesting_data })
 }

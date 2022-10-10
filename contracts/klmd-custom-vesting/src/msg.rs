@@ -2,7 +2,7 @@ use cosmwasm_std::{Addr, Uint128, Timestamp};
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 
-use crate::state::VestingData;
+use crate::state::{VestingData, TotalVestingInfo};
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct InstantiateMsg {
@@ -40,6 +40,10 @@ pub enum QueryMsg {
     TokenAddress {},
     VestingAccount {
         address: Addr,
+        height: Option<u64>,
+    },
+    VestingTotal {
+        height: Option<u64>,
     },
 }
 
@@ -57,4 +61,9 @@ pub struct TokenAddressResponse {
 pub struct VestingAccountResponse {
     pub address: Addr,
     pub vestings: VestingData,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema, PartialEq, Debug)]
+pub struct VestingTotalResponse {
+    pub info: TotalVestingInfo,
 }
