@@ -132,6 +132,17 @@ fn simple_e2e_test() {
     // register hook for vesting contract on proposal contract
     register_proposal_hook(&mut app, proposal_contract_addr.clone(), vesting_contract_addr.clone());
 
+    let _ = app.execute_contract(
+        Addr::unchecked(OWNER.to_string()),
+        proposal_contract_addr.clone(),
+        &cw_proposal_single::msg::ExecuteMsg::Propose {
+            title: "new proposal 1".to_string(),
+            description: "eeeeh".to_string(),
+            msgs: vec![],
+        },
+        &vec![],
+    );
+
     let initial_owner_balance = Uint128::new(INITIAL_BALANCE); 
 
     println!("{:?}", cw20_contract_addr.clone());

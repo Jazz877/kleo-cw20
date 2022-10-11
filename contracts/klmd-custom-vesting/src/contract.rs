@@ -3,7 +3,6 @@ use cosmwasm_std::entry_point;
 
 use cosmwasm_std::{DepsMut, Env, MessageInfo, StdResult, Response, Addr, StdError, Storage, Timestamp, Uint128, WasmMsg, to_binary, attr, Binary, Deps, Order, Uint64};
 use cw20::Cw20ExecuteMsg;
-use proposal_hooks::ProposalHookMsg;
 
 use crate::{msg::{InstantiateMsg, ExecuteMsg, QueryMsg, OwnerAddressResponse, VestingAccountResponse, TokenAddressResponse, VestingTotalResponse}, state::{OWNER_ADDRESS, TOKEN_ADDRESS, ACCOUNTS, Account, VestingData, TotalVestingInfo, VESTING_TOTAL, VESTING_DATA, get_vesting_data_from_account}};
 
@@ -46,7 +45,8 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             vesting_amount,
         } =>  register_vesting_account(deps, env, info, address, start_time, end_time, vesting_amount),
         ExecuteMsg::Claim {recipient} => claim(deps, env, info, recipient),
-        ExecuteMsg::Snapshot { proposal_msg } => snapshot(deps, env, info, proposal_msg),
+        ExecuteMsg::Snapshot {} => snapshot(deps, env, info),
+        ExecuteMsg::ProposalHookMsg(_) => snapshot(deps, env, info),
     }
 }
 
@@ -58,7 +58,7 @@ fn only_owner(storage: &dyn Storage, sender: Addr) -> StdResult<()> {
     Ok(())
 }
 
-fn snapshot(deps: DepsMut, _env: Env, _info: MessageInfo, _proposal_msg: Option<ProposalHookMsg>) -> StdResult<Response> {
+fn snapshot(deps: DepsMut, _env: Env, _info: MessageInfo) -> StdResult<Response> {
     let accounts_addr: Vec<Addr> = ACCOUNTS
         .keys(deps.storage, None, None, Order::Ascending)
         .map(|item| item.map(Into::into))
@@ -130,7 +130,7 @@ fn register_vesting_account(deps: DepsMut, env: Env, _info: MessageInfo, address
         &account,
     )?;
 
-    let _ = snapshot(deps, env, _info, None)?;
+    let _ = snapshot(deps, env, _info)?;
 
     Ok(Response::new()
         .add_attribute("action", "register_vesting_account")
@@ -155,7 +155,7 @@ fn deregister_vesting_account(deps: DepsMut, env: Env, info: MessageInfo, addres
     // remove vesting account
     ACCOUNTS.remove(deps.storage, &address);
 
-    let _ = snapshot(deps, env.clone(), info.clone(), None)?; // save current snapshot
+    let _ = snapshot(deps, env.clone(), info.clone())?; // save current snapshot
     //VESTING_DATA.remove(deps.storage, &address, env.block.height)?;
 
     let vested_amount = account
@@ -228,7 +228,7 @@ fn claim(deps: DepsMut, env: Env, info: MessageInfo, recipient: Option<Addr>) ->
     } else {
         ACCOUNTS.save(deps.storage, &_recipient, &account)?;
     }
-    let _ = snapshot(deps, env.clone(), info.clone(), None)?;
+    let _ = snapshot(deps, env.clone(), info.clone())?;
 
     let res = Response::new()
         .add_message(WasmMsg::Execute {
@@ -368,7 +368,7 @@ mod testing {
 
         env.block.height += 1;
         env.block.time = Timestamp::from_nanos(105);
-        let _ = execute(deps.as_mut(), env.clone(), info.clone(), ExecuteMsg::Snapshot{ proposal_msg: None }).unwrap();
+        let _ = execute(deps.as_mut(), env.clone(), info.clone(), ExecuteMsg::Snapshot{}).unwrap();
 
         env.block.height += 1;
         env.block.time = Timestamp::from_nanos(110);

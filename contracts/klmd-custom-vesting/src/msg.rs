@@ -32,6 +32,7 @@ pub enum ExecuteMsg {
         recipient: Option<Addr>,
     },
     Snapshot {},
+    ProposalHookMsg(ProposalHookMsg),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
