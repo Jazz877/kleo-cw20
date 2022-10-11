@@ -3,6 +3,7 @@ use cosmwasm_std::entry_point;
 
 use cosmwasm_std::{DepsMut, Env, MessageInfo, StdResult, Response, Addr, StdError, Storage, Timestamp, Uint128, WasmMsg, to_binary, attr, Binary, Deps, Order, Uint64};
 use cw20::Cw20ExecuteMsg;
+use proposal_hooks::ProposalHookMsg;
 
 use crate::{msg::{InstantiateMsg, ExecuteMsg, QueryMsg, OwnerAddressResponse, VestingAccountResponse, TokenAddressResponse, VestingTotalResponse}, state::{OWNER_ADDRESS, TOKEN_ADDRESS, ACCOUNTS, Account, VestingData, TotalVestingInfo, VESTING_TOTAL, VESTING_DATA, get_vesting_data_from_account}};
 
@@ -45,7 +46,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             vesting_amount,
         } =>  register_vesting_account(deps, env, info, address, start_time, end_time, vesting_amount),
         ExecuteMsg::Claim {recipient} => claim(deps, env, info, recipient),
-        ExecuteMsg::Snapshot {} => snapshot(deps, env, info),
+        ExecuteMsg::Snapshot { proposal_msg } => snapshot(deps, env, info, proposal_msg),
     }
 }
 
@@ -57,7 +58,7 @@ fn only_owner(storage: &dyn Storage, sender: Addr) -> StdResult<()> {
     Ok(())
 }
 
-fn snapshot(deps: DepsMut, _env: Env, _info: MessageInfo) -> StdResult<Response> {
+fn snapshot(deps: DepsMut, _env: Env, _info: MessageInfo, _proposal_msg: Option<ProposalHookMsg>) -> StdResult<Response> {
     let accounts_addr: Vec<Addr> = ACCOUNTS
         .keys(deps.storage, None, None, Order::Ascending)
         .map(|item| item.map(Into::into))
@@ -129,7 +130,7 @@ fn register_vesting_account(deps: DepsMut, env: Env, _info: MessageInfo, address
         &account,
     )?;
 
-    let _ = snapshot(deps, env, _info)?;
+    let _ = snapshot(deps, env, _info, None)?;
 
     Ok(Response::new()
         .add_attribute("action", "register_vesting_account")
@@ -154,7 +155,7 @@ fn deregister_vesting_account(deps: DepsMut, env: Env, info: MessageInfo, addres
     // remove vesting account
     ACCOUNTS.remove(deps.storage, &address);
 
-    let _ = snapshot(deps, env.clone(), info.clone())?; // save current snapshot
+    let _ = snapshot(deps, env.clone(), info.clone(), None)?; // save current snapshot
     //VESTING_DATA.remove(deps.storage, &address, env.block.height)?;
 
     let vested_amount = account
@@ -227,7 +228,7 @@ fn claim(deps: DepsMut, env: Env, info: MessageInfo, recipient: Option<Addr>) ->
     } else {
         ACCOUNTS.save(deps.storage, &_recipient, &account)?;
     }
-    let _ = snapshot(deps, env.clone(), info.clone())?;
+    let _ = snapshot(deps, env.clone(), info.clone(), None)?;
 
     let res = Response::new()
         .add_message(WasmMsg::Execute {
@@ -337,7 +338,6 @@ mod testing {
         let _res = instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
 
 
-        let mut deps = mock_dependencies();
         let msg = ExecuteMsg::RegisterVestingAccount {
             address: Addr::unchecked("addr0002".to_string()),
             vesting_amount: Uint128::from(100u32),
@@ -345,9 +345,10 @@ mod testing {
             end_time: Timestamp::from_nanos(200),
         };
         let info = mock_info("addr0001", &[]);
-        let _ = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        let _ = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
 
-        env.block.time = Timestamp::from_nanos(300);
+        env.block.height += 20;
+        env.block.time = Timestamp::from_nanos(100);
         let res = query(deps.as_ref(), env.clone(), QueryMsg::VestingAccount {
             address: Addr::unchecked("addr0002".to_string()), height: None,
         }).unwrap();
@@ -357,8 +358,31 @@ mod testing {
             address: Addr::unchecked("addr0002".to_string()),
             vestings: VestingData { 
                 vesting_amount: Uint128::from(100u32), 
-                vested_amount: Uint128::from(100u32), 
-                claimable_amount: Uint128::from(100u32),
+                vested_amount: Uint128::from(0u32), 
+                claimable_amount: Uint128::from(0u32),
+                claimed_amount: Uint128::zero(),
+                start_time: Timestamp::from_nanos(100), 
+                end_time: Timestamp::from_nanos(200), 
+            },
+        });
+
+        env.block.height += 1;
+        env.block.time = Timestamp::from_nanos(105);
+        let _ = execute(deps.as_mut(), env.clone(), info.clone(), ExecuteMsg::Snapshot{ proposal_msg: None }).unwrap();
+
+        env.block.height += 1;
+        env.block.time = Timestamp::from_nanos(110);
+        let res = query(deps.as_ref(), env.clone(), QueryMsg::VestingAccount {
+            address: Addr::unchecked("addr0002".to_string()), height: None,
+        }).unwrap();
+        let vesting_response: VestingAccountResponse = from_binary(&res).unwrap();
+
+        assert_eq!(vesting_response, VestingAccountResponse {
+            address: Addr::unchecked("addr0002".to_string()),
+            vestings: VestingData { 
+                vesting_amount: Uint128::from(100u32),
+                vested_amount: Uint128::from(5u32), 
+                claimable_amount: Uint128::from(5u32),
                 claimed_amount: Uint128::zero(),
                 start_time: Timestamp::from_nanos(100), 
                 end_time: Timestamp::from_nanos(200), 

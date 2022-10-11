@@ -39,6 +39,8 @@ schemars = "0.8"
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 thiserror = { version = "1.0" }
+anyhow = { version = "1.0.65" }
+proposal-hooks = { tag = "v1.0.0", git = "https://github.com/DA0-DA0/dao-contracts.git" }
 
 [dev-dependencies]
 cosmwasm-schema = { version = "1.0.0" }

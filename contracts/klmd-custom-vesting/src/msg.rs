@@ -1,4 +1,5 @@
 use cosmwasm_std::{Addr, Uint128, Timestamp};
+use proposal_hooks::ProposalHookMsg;
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 
@@ -30,7 +31,9 @@ pub enum ExecuteMsg {
     Claim {
         recipient: Option<Addr>,
     },
-    Snapshot {},
+    Snapshot {
+        proposal_msg: Option<ProposalHookMsg>
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
