@@ -183,6 +183,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "cw-controllers"
+version = "0.13.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f0bc6019b4d3d81e11f5c384bcce7173e2210bd654d75c6c9668e12cca05dfa"
+dependencies = [
+ "cosmwasm-std",
+ "cw-storage-plus 0.13.4",
+ "cw-utils 0.13.4",
+ "schemars",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "cw-core-interface"
 version = "0.1.0"
 source = "git+https://github.com/DA0-DA0/dao-contracts.git?tag=v1.0.0#e531c760a5d057329afd98d62567aaa4dca2c96f"
@@ -417,6 +431,24 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "thiserror",
+]
+
+[[package]]
+name = "cw20-stake"
+version = "0.2.6"
+source = "git+https://github.com/DA0-DA0/dao-contracts.git?tag=v1.0.0#e531c760a5d057329afd98d62567aaa4dca2c96f"
+dependencies = [
+ "cosmwasm-std",
+ "cosmwasm-storage",
+ "cw-controllers",
+ "cw-storage-plus 0.13.4",
+ "cw-utils 0.13.4",
+ "cw2 0.13.4",
+ "cw20 0.13.4",
+ "cw20-base",
+ "schemars",
+ "serde",
  "thiserror",
 ]
 
@@ -669,6 +701,10 @@ dependencies = [
  "cw-multi-test 0.14.0",
  "cw-storage-plus 0.13.4",
  "cw-utils 0.13.4",
+ "cw2 0.13.4",
+ "cw20 0.13.4",
+ "cw20-base",
+ "cw20-stake",
  "klmd-custom-vesting",
  "schemars",
  "serde",

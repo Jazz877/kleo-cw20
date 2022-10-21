@@ -1,4 +1,5 @@
 use cosmwasm_std::StdError;
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ContractError {
@@ -8,15 +9,36 @@ pub enum ContractError {
     #[error("Unauthorized")]
     Unauthorized {},
 
+    #[error("Initial governance token balances must not be empty")]
+    InitialBalancesError {},
+
+    #[error("Can not change the contract's token after it has been set")]
+    DuplicateToken {},
+
+    #[error("Error instantiating token")]
+    TokenInstantiateError {},
+
+    #[error("Error instantiating vesting contract")]
+    VestingInstantiateError {},
+
     #[error("Got a submessage reply with unknown id: {id}")]
     UnknownReplyId { id: u64 },
+
+    #[error("Staking contract token address does not match provided token address")]
+    StakingContractMismatch {},
 
     #[error("Vesting contract token address does not match provided token address")]
     VestingContractMismatch {},
 
+    #[error("Can not change the contract's staking contract after it has been set")]
+    DuplicateStakingContract {},
+
     #[error("Can not change the contract's vesting contract after it has been set")]
     DuplicateVestingContract {},
 
-    #[error("Impossible to instantiate a new vesting contract")]
-    VestingInstantiateError {},
+    #[error("Active threshold percentage must be greater than 0 and less than 1")]
+    InvalidActivePercentage {},
+
+    #[error("Absolute count threshold cannot be greater than the total token supply")]
+    InvalidAbsoluteCount {},
 }

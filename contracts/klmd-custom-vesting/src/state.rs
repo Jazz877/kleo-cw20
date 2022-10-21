@@ -15,9 +15,9 @@ pub const VESTING_DATA: SnapshotMap<&Addr, VestingData> = SnapshotMap::new(
 );
 
 pub const VESTING_TOTAL: SnapshotItem<TotalVestingInfo> = SnapshotItem::new(
-    "total_vested",
-    "total_vested__checkpoints",
-    "total_vested__changelog",
+    "vesting_total",
+    "vesting_total__checkpoints",
+    "vesting_total__changelog",
     Strategy::EveryBlock,
 );
 pub const TOKEN_ADDRESS: Item<Addr> = Item::new("token_address");
