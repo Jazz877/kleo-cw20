@@ -33,10 +33,10 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         ExecuteMsg::UpdateOwnerAddress { address } => {
             update_owner_address(deps, env, info, address)
         },
-        ExecuteMsg::DeregisterVestingAccount { 
-            address, 
-            vested_token_recipient, 
-            left_vesting_token_recipient 
+        ExecuteMsg::DeregisterVestingAccount {
+            address,
+            vested_token_recipient,
+            left_vesting_token_recipient
         } => deregister_vesting_account(deps, env, info, address, vested_token_recipient, left_vesting_token_recipient),
         ExecuteMsg::RegisterVestingAccount {
             address,
@@ -70,14 +70,16 @@ fn snapshot(deps: DepsMut, _env: Env, _info: MessageInfo) -> StdResult<Response>
         .map(| account| (account.clone().address, get_vesting_data_from_account(account.clone(), &_env.block).unwrap()))
         .collect();
 
+    let height = _env.block.height - 1;
+
     for (addr, account_data) in account_vest_data.iter() {
-        VESTING_DATA.save(deps.storage, &addr, &account_data, _env.block.height)?;
+        VESTING_DATA.save(deps.storage, &addr, &account_data, height)?;
     }
     let (_, data): (Vec<Addr>, Vec<VestingData>) = account_vest_data.into_iter().unzip();
     let total_vesting_info = compute_total_vesting_info(data)?;
 
-    VESTING_TOTAL.save(deps.storage, &total_vesting_info, _env.block.height)?;
-    
+    VESTING_TOTAL.save(deps.storage, &total_vesting_info, height)?;
+
 
     Ok(Response::new().add_attribute("action", "snapshot").add_attribute("height", Uint64::new(_env.block.height)))
 }
@@ -221,7 +223,7 @@ fn claim(deps: DepsMut, env: Env, info: MessageInfo, recipient: Option<Addr>) ->
     let claimed_amount = account.claimed_amount;
 
     let claimable_amount = vested_amount.checked_sub(claimed_amount)?;
-    
+
     account.claimed_amount = vested_amount;
     if account.claimed_amount == account.vesting_amount {
         ACCOUNTS.remove(deps.storage, &_recipient);
@@ -356,13 +358,13 @@ mod testing {
 
         assert_eq!(vesting_response, VestingAccountResponse {
             address: Addr::unchecked("addr0002".to_string()),
-            vestings: VestingData { 
-                vesting_amount: Uint128::from(100u32), 
-                vested_amount: Uint128::from(0u32), 
+            vestings: VestingData {
+                vesting_amount: Uint128::from(100u32),
+                vested_amount: Uint128::from(0u32),
                 claimable_amount: Uint128::from(0u32),
                 claimed_amount: Uint128::zero(),
-                start_time: Timestamp::from_nanos(100), 
-                end_time: Timestamp::from_nanos(200), 
+                start_time: Timestamp::from_nanos(100),
+                end_time: Timestamp::from_nanos(200),
             },
         });
 
@@ -379,13 +381,13 @@ mod testing {
 
         assert_eq!(vesting_response, VestingAccountResponse {
             address: Addr::unchecked("addr0002".to_string()),
-            vestings: VestingData { 
+            vestings: VestingData {
                 vesting_amount: Uint128::from(100u32),
-                vested_amount: Uint128::from(5u32), 
+                vested_amount: Uint128::from(5u32),
                 claimable_amount: Uint128::from(5u32),
                 claimed_amount: Uint128::zero(),
-                start_time: Timestamp::from_nanos(100), 
-                end_time: Timestamp::from_nanos(200), 
+                start_time: Timestamp::from_nanos(100),
+                end_time: Timestamp::from_nanos(200),
             },
         })
     }
@@ -400,7 +402,9 @@ mod testing {
         };
 
         let mut env = mock_env();
+        // ##### TIME 0 #####
         env.block.time = Timestamp::from_nanos(0);
+        env.block.height = 1000;
         let info = mock_info("addr0000", &[]);
 
         // we can just call .unwrap() to assert this was a success
@@ -413,9 +417,14 @@ mod testing {
             end_time: Timestamp::from_nanos(200),
         };
         let info = mock_info("addr0001", &[]);
-        let _ = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        let _ = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
 
-        env.block.time = Timestamp::from_nanos(199);
+        // ##### TIME 1 ##### (5 seconds after start_time)
+        env.block.time = Timestamp::from_nanos(105);
+        env.block.height += 1; // 1001
+        let msg = ExecuteMsg::Snapshot {};
+        let _ = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
         let res = query(deps.as_ref(), env.clone(), QueryMsg::VestingAccount {
             address: Addr::unchecked("addr0002".to_string()), height: None,
         }).unwrap();
@@ -423,15 +432,19 @@ mod testing {
 
         assert_eq!(vesting_response, VestingAccountResponse {
             address: Addr::unchecked("addr0002".to_string()),
-            vestings: VestingData { 
-                vesting_amount: Uint128::from(100u32), 
-                vested_amount: Uint128::from(99u32), 
-                claimable_amount: Uint128::from(99u32), 
+            vestings: VestingData {
+                vesting_amount: Uint128::from(100u32),
+                vested_amount: Uint128::from(5u32),
+                claimable_amount: Uint128::from(5u32),
                 claimed_amount: Uint128::zero(),
-                start_time: Timestamp::from_nanos(100), 
-                end_time: Timestamp::from_nanos(200), 
+                start_time: Timestamp::from_nanos(100),
+                end_time: Timestamp::from_nanos(200),
             },
         });
+
+        // ##### TIME 2 ##### (10 seconds after start_time)
+        env.block.time = Timestamp::from_nanos(110);
+        env.block.height += 1; // 1002
 
         let msg = ExecuteMsg::Claim {
             recipient: None,
@@ -445,14 +458,171 @@ mod testing {
 
         assert_eq!(vesting_response, VestingAccountResponse {
             address: Addr::unchecked("addr0002".to_string()),
-            vestings: VestingData { 
-                vesting_amount: Uint128::from(100u32), 
-                vested_amount: Uint128::from(99u32), 
+            vestings: VestingData {
+                vesting_amount: Uint128::from(100u32),
+                vested_amount: Uint128::from(10u32),
                 claimable_amount: Uint128::from(0u32),
-                claimed_amount: Uint128::from(99u32), 
-                start_time: Timestamp::from_nanos(100), 
-                end_time: Timestamp::from_nanos(200), 
+                claimed_amount: Uint128::from(10u32),
+                start_time: Timestamp::from_nanos(100),
+                end_time: Timestamp::from_nanos(200),
             },
-        })
+        });
+
+        // ##### TIME 3 ##### (15 seconds after start_time without snapshot)
+        env.block.time = Timestamp::from_nanos(115);
+        env.block.height += 1; // 1003
+        let res = query(deps.as_ref(), env.clone(), QueryMsg::VestingAccount {
+            address: Addr::unchecked("addr0002".to_string()), height: None,
+        }).unwrap();
+        let vesting_response: VestingAccountResponse = from_binary(&res).unwrap();
+
+        // it should be freezed since there were no snapshot in the middle
+        assert_eq!(vesting_response, VestingAccountResponse {
+            address: Addr::unchecked("addr0002".to_string()),
+            vestings: VestingData {
+                vesting_amount: Uint128::from(100u32),
+                vested_amount: Uint128::from(10u32),
+                claimable_amount: Uint128::from(0u32),
+                claimed_amount: Uint128::from(10u32),
+                start_time: Timestamp::from_nanos(100),
+                end_time: Timestamp::from_nanos(200),
+            },
+        });
+
+        // check old data for TIME 1
+        let res = query(deps.as_ref(), env.clone(), QueryMsg::VestingAccount {
+            address: Addr::unchecked("addr0002".to_string()), height: Some(1001),
+        }).unwrap();
+        let vesting_response: VestingAccountResponse = from_binary(&res).unwrap();
+
+        assert_eq!(
+            vesting_response,
+            VestingAccountResponse {
+                address: Addr::unchecked("addr0002".to_string()),
+                vestings: VestingData {
+                    vesting_amount: Uint128::from(100u32),
+                    vested_amount: Uint128::from(5u32),
+                    claimable_amount: Uint128::from(5u32),
+                    claimed_amount: Uint128::from(0u32),
+                    start_time: Timestamp::from_nanos(100),
+                    end_time: Timestamp::from_nanos(200),
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn test_snapshot() {
+        let mut deps = mock_dependencies();
+
+        let msg = InstantiateMsg {
+            token_address: Addr::unchecked("token0001".to_string()),
+            owner_address: Some(Addr::unchecked("addr0001".to_string())),
+        };
+
+        let mut env = mock_env();
+        // ##### TIME 0 #####
+        env.block.time = Timestamp::from_nanos(0);
+        env.block.height = 1000;
+        let info = mock_info("addr0000", &[]);
+
+        // we can just call .unwrap() to assert this was a success
+        let _res = instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
+
+        let msg = ExecuteMsg::RegisterVestingAccount {
+            address: Addr::unchecked("addr0002".to_string()),
+            vesting_amount: Uint128::from(100u32),
+            start_time: Timestamp::from_nanos(100),
+            end_time: Timestamp::from_nanos(200),
+        };
+        let info = mock_info("addr0001", &[]);
+        let _ = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+        let res = query(deps.as_ref(), env.clone(), QueryMsg::VestingAccount {
+            address: Addr::unchecked("addr0002".to_string()), height: None,
+        }).unwrap();
+        let vesting_response: VestingAccountResponse = from_binary(&res).unwrap();
+
+        assert_eq!(vesting_response, VestingAccountResponse {
+            address: Addr::unchecked("addr0002".to_string()),
+            vestings: VestingData {
+                vesting_amount: Uint128::from(100u32),
+                vested_amount: Uint128::from(0u32),
+                claimable_amount: Uint128::from(0u32),
+                claimed_amount: Uint128::zero(),
+                start_time: Timestamp::from_nanos(100),
+                end_time: Timestamp::from_nanos(200),
+            },
+        });
+
+        // ##### TIME 1 ##### (5 seconds after start_time)
+        env.block.time = Timestamp::from_nanos(105);
+        env.block.height += 1; // 1001
+
+        // first snapshot
+        let msg = ExecuteMsg::Snapshot {};
+        let _ = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+        let res = query(deps.as_ref(), env.clone(), QueryMsg::VestingAccount {
+            address: Addr::unchecked("addr0002".to_string()), height: None,
+        }).unwrap();
+        let vesting_response: VestingAccountResponse = from_binary(&res).unwrap();
+
+        assert_eq!(vesting_response, VestingAccountResponse {
+            address: Addr::unchecked("addr0002".to_string()),
+            vestings: VestingData {
+                vesting_amount: Uint128::from(100u32),
+                vested_amount: Uint128::from(5u32),
+                claimable_amount: Uint128::from(5u32),
+                claimed_amount: Uint128::zero(),
+                start_time: Timestamp::from_nanos(100),
+                end_time: Timestamp::from_nanos(200),
+            },
+        });
+
+        // ##### TIME 2 ##### (10 seconds after start_time)
+        env.block.time = Timestamp::from_nanos(110);
+        env.block.height += 1; // 1002
+
+        // second snapshot
+        let msg = ExecuteMsg::Snapshot {};
+        let _ = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+        let res = query(deps.as_ref(), env.clone(), QueryMsg::VestingAccount {
+            address: Addr::unchecked("addr0002".to_string()), height: None,
+        }).unwrap();
+
+        let vesting_response: VestingAccountResponse = from_binary(&res).unwrap();
+
+        assert_eq!(vesting_response, VestingAccountResponse {
+            address: Addr::unchecked("addr0002".to_string()),
+            vestings: VestingData {
+                vesting_amount: Uint128::from(100u32),
+                vested_amount: Uint128::from(10u32),
+                claimable_amount: Uint128::from(10u32),
+                claimed_amount: Uint128::zero(),
+                start_time: Timestamp::from_nanos(100),
+                end_time: Timestamp::from_nanos(200),
+            },
+        });
+
+        // query for snapshot at height 1001
+        let res = query(deps.as_ref(), env.clone(), QueryMsg::VestingAccount {
+            address: Addr::unchecked("addr0002".to_string()), height: Some(1001),
+        }).unwrap();
+
+        let vesting_response: VestingAccountResponse = from_binary(&res).unwrap();
+
+        assert_eq!(vesting_response, VestingAccountResponse {
+            address: Addr::unchecked("addr0002".to_string()),
+            vestings: VestingData {
+                vesting_amount: Uint128::from(100u32),
+                vested_amount: Uint128::from(5u32),
+                claimable_amount: Uint128::from(5u32),
+                claimed_amount: Uint128::zero(),
+                start_time: Timestamp::from_nanos(100),
+                end_time: Timestamp::from_nanos(200),
+            },
+        });
     }
 }

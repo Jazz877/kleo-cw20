@@ -114,14 +114,14 @@ mod test {
         };
         let mut env = mock_env();
         env.block.time = Timestamp::from_nanos(50);
-        
+
         let vested_tokens = account.vested_amount(&env.block).unwrap();
 
         assert_eq!(vested_tokens, Uint128::new(50));
 
         let mut env = mock_env();
         env.block.time = Timestamp::from_nanos(0);
-        
+
         let vested_tokens = account.vested_amount(&env.block).unwrap();
 
         assert_eq!(vested_tokens, Uint128::new(0));
@@ -129,7 +129,7 @@ mod test {
 
         let mut env = mock_env();
         env.block.time = Timestamp::from_nanos(102);
-        
+
         let vested_tokens = account.vested_amount(&env.block).unwrap();
 
         assert_eq!(vested_tokens, Uint128::new(100));

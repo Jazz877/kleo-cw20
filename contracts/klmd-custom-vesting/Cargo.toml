@@ -46,5 +46,3 @@ proposal-hooks = { tag = "v1.0.0", git = "https://github.com/DA0-DA0/dao-contrac
 cosmwasm-schema = { version = "1.0.0" }
 cw-multi-test = {  version = "0.13" }
 cw20-base = {  version = "0.13", features = ["library"] }
-cw-proposal-single = { tag = "v1.0.0", git = "https://github.com/DA0-DA0/dao-contracts.git" }
-voting = { tag = "v1.0.0", git = "https://github.com/DA0-DA0/dao-contracts.git" }
