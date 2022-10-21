@@ -48,12 +48,28 @@
               ],
               "format": "uint64",
               "minimum": 0.0
-            },
-            "with_payments": {
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "vesting_total"
+      ],
+      "properties": {
+        "vesting_total": {
+          "type": "object",
+          "properties": {
+            "height": {
               "type": [
-                "boolean",
+                "integer",
                 "null"
-              ]
+              ],
+              "format": "uint64",
+              "minimum": 0.0
             }
           }
         }

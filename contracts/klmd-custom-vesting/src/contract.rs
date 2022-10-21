@@ -70,7 +70,7 @@ fn snapshot(deps: DepsMut, _env: Env, _info: MessageInfo) -> StdResult<Response>
         .map(| account| (account.clone().address, get_vesting_data_from_account(account.clone(), &_env.block).unwrap()))
         .collect();
 
-    let height = _env.block.height - 1;
+    let height = _env.block.clone().height - 1;
 
     for (addr, account_data) in account_vest_data.iter() {
         VESTING_DATA.save(deps.storage, &addr, &account_data, height)?;
@@ -288,10 +288,6 @@ fn query_vesting_total(deps: Deps, env: Env, height: Option<u64>) -> StdResult<V
 fn query_vesting_account(deps: Deps, env: Env, address: Addr, height: Option<u64>) -> StdResult<VestingAccountResponse> {
     let input_height = height.unwrap_or(env.block.height);
     let vesting_data = VESTING_DATA.may_load_at_height(deps.storage, &address, input_height)?.unwrap_or_default();
-
-    deps.querier.query(
-        &QueryRequest::Stargate
-    )
 
     Ok(VestingAccountResponse { address, vestings: vesting_data })
 }
