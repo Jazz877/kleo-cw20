@@ -1,7 +1,7 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 
-use cosmwasm_std::{DepsMut, Env, MessageInfo, StdResult, Response, Addr, StdError, Storage, Timestamp, Uint128, WasmMsg, to_binary, attr, Binary, Deps, Order, Uint64};
+use cosmwasm_std::{DepsMut, Env, MessageInfo, StdResult, Response, Addr, StdError, Storage, Timestamp, Uint128, WasmMsg, to_binary, attr, Binary, Deps, Order, Uint64, QueryRequest};
 use cw20::Cw20ExecuteMsg;
 
 use crate::{msg::{InstantiateMsg, ExecuteMsg, QueryMsg, OwnerAddressResponse, VestingAccountResponse, TokenAddressResponse, VestingTotalResponse}, state::{OWNER_ADDRESS, TOKEN_ADDRESS, ACCOUNTS, Account, VestingData, TotalVestingInfo, VESTING_TOTAL, VESTING_DATA, get_vesting_data_from_account}};
@@ -288,6 +288,10 @@ fn query_vesting_total(deps: Deps, env: Env, height: Option<u64>) -> StdResult<V
 fn query_vesting_account(deps: Deps, env: Env, address: Addr, height: Option<u64>) -> StdResult<VestingAccountResponse> {
     let input_height = height.unwrap_or(env.block.height);
     let vesting_data = VESTING_DATA.may_load_at_height(deps.storage, &address, input_height)?.unwrap_or_default();
+
+    deps.querier.query(
+        &QueryRequest::Stargate
+    )
 
     Ok(VestingAccountResponse { address, vestings: vesting_data })
 }
