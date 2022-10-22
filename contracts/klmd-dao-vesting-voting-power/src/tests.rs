@@ -1,3 +1,4 @@
+use std::ops::Add;
 use cosmwasm_std::{testing::{mock_dependencies, mock_env}, to_binary, Addr, CosmosMsg, Decimal, Empty, Uint128, WasmMsg, Timestamp};
 use cw2::ContractVersion;
 use cw20::{BalanceResponse, Cw20Coin, MinterResponse, TokenInfoResponse};
@@ -76,14 +77,20 @@ fn stake_tokens(app: &mut App, staking_addr: Addr, cw20_addr: Addr, sender: &str
         .unwrap();
 }
 
-fn register_vesting_account(app: &mut App, account_addr: Addr, amount: Uint128, start_time: Timestamp, end_time: Timestamp) {
+fn register_vesting_account(app: &mut App, account_addr: Addr, vesting_addr: Addr, sender: &str, amount: Uint128, start_time: Timestamp, end_time: Timestamp) {
     let msg = klmd_custom_vesting::msg::ExecuteMsg::RegisterVestingAccount {
         address: account_addr.clone(),
         vesting_amount: amount,
         start_time,
         end_time,
     };
-    app.execute_contract(Addr::unchecked(DAO_ADDR), Addr::unchecked(DAO_ADDR), &msg, &[])
+    app.execute_contract(Addr::unchecked(sender), vesting_addr, &msg, &[])
+        .unwrap();
+}
+
+fn vesting_contract_snapshot(app: &mut App, vesting_addr: Addr, sender: &str) {
+    let msg = klmd_custom_vesting::msg::ExecuteMsg::Snapshot {};
+    app.execute_contract(Addr::unchecked(sender), vesting_addr, &msg, &[])
         .unwrap();
 }
 
@@ -247,6 +254,10 @@ fn test_new_cw20() {
         .wrap()
         .query_wasm_smart(voting_addr.clone(), &QueryMsg::StakingContract {})
         .unwrap();
+    let vesting_addr: Addr = app
+        .wrap()
+        .query_wasm_smart(voting_addr.clone(), &QueryMsg::VestingContract {})
+        .unwrap();
 
     let token_info: TokenInfoResponse = app
         .wrap()
@@ -291,7 +302,7 @@ fn test_new_cw20() {
         }
     );
 
-    // Expect 0 as they have not staked
+    // Expect 0 as they have not staked and not vested.
     let creator_voting_power: VotingPowerAtHeightResponse = app
         .wrap()
         .query_wasm_smart(
@@ -311,7 +322,7 @@ fn test_new_cw20() {
         }
     );
 
-    // Expect 0 as DAO has not staked
+    // Expect 0 as DAO has not staked and not vested.
     let dao_voting_power: VotingPowerAtHeightResponse = app
         .wrap()
         .query_wasm_smart(
@@ -335,7 +346,7 @@ fn test_new_cw20() {
     stake_tokens(&mut app, staking_addr, token_addr, CREATOR_ADDR, 1);
     app.update_block(next_block);
 
-    // Expect 1 as creator has now staked 1
+    // Expect 1 as creator has now staked 1 and not vested.
     let creator_voting_power: VotingPowerAtHeightResponse = app
         .wrap()
         .query_wasm_smart(
@@ -358,7 +369,7 @@ fn test_new_cw20() {
     // Expect 1 as only one token staked to make up whole voting power
     let total_voting_power: VotingPowerAtHeightResponse = app
         .wrap()
-        .query_wasm_smart(voting_addr, &QueryMsg::TotalPowerAtHeight { height: None })
+        .query_wasm_smart(voting_addr.clone(), &QueryMsg::TotalPowerAtHeight { height: None })
         .unwrap();
 
     assert_eq!(
@@ -367,11 +378,51 @@ fn test_new_cw20() {
             power: Uint128::new(1u128),
             height: app.block_info().height,
         }
-    )
+    );
+
+    // Vest 1 token as creator
+    let curr_time: Timestamp = app.block_info().time;
+    register_vesting_account(
+        &mut app,
+        Addr::unchecked("creator"),
+        vesting_addr.clone(),
+        CREATOR_ADDR,
+        Uint128::new(1u128),
+        curr_time,
+        curr_time.plus_seconds(5),
+    );
+    app.update_block(next_block);
+
+    // vesting snapshot is taken at the end of the block
+    vesting_contract_snapshot(
+        &mut app,
+        vesting_addr,
+        CREATOR_ADDR,
+    );
+
+    // Expect 2 as creator has now staked 1 and vested 1.
+    let creator_voting_power: VotingPowerAtHeightResponse = app
+        .wrap()
+        .query_wasm_smart(
+            voting_addr.clone(),
+            &QueryMsg::VotingPowerAtHeight {
+                address: CREATOR_ADDR.to_string(),
+                height: None,
+            },
+        )
+        .unwrap();
+
+    assert_eq!(
+        creator_voting_power,
+        VotingPowerAtHeightResponse {
+            power: Uint128::new(2u128),
+            height: app.block_info().height,
+        }
+    );
 }
 
 #[test]
-fn test_existing_cw20_new_staking() {
+fn test_existing_cw20_new_staking_new_vesting() {
     let mut app = App::default();
     let cw20_id = app.store_code(cw20_contract());
     let voting_id = app.store_code(staked_balance_voting_contract());
@@ -527,7 +578,216 @@ fn test_existing_cw20_new_staking() {
 }
 
 #[test]
-fn test_existing_cw20_existing_staking() {
+fn test_existing_cw20_new_staking_existing_vesting() {
+    let mut app = App::default();
+    let cw20_id = app.store_code(cw20_contract());
+    let voting_id = app.store_code(staked_balance_voting_contract());
+    let staking_id = app.store_code(staking_contract());
+    let vesting_id = app.store_code(vesting_contract());
+
+    let token_addr: Addr = app
+        .instantiate_contract(
+            cw20_id,
+            Addr::unchecked(CREATOR_ADDR),
+            &cw20_base::msg::InstantiateMsg {
+                name: "DAO DAO".to_string(),
+                symbol: "DAO".to_string(),
+                decimals: 3,
+                initial_balances: vec![Cw20Coin {
+                    address: CREATOR_ADDR.clone().to_string(),
+                    amount: Uint128::from(2u64),
+                }],
+                mint: None,
+                marketing: None,
+            },
+            &[],
+            "voting token",
+            None,
+        )
+        .unwrap();
+
+    let vesting_addr: Addr = app
+        .instantiate_contract(
+            vesting_id,
+            Addr::unchecked(CREATOR_ADDR),
+            &klmd_custom_vesting::msg::InstantiateMsg {
+                owner_address: Some(Addr::unchecked(CREATOR_ADDR)),
+                token_address: token_addr.clone(),
+            },
+            &[],
+            "vesting contract",
+            None,
+        )
+        .unwrap();
+
+    let voting_addr = instantiate_voting(
+        &mut app,
+        voting_id,
+        InstantiateMsg {
+            token_info: crate::msg::TokenInfo::Existing {
+                address: token_addr.to_string(),
+                staking_contract: StakingInfo::New {
+                    staking_code_id: staking_id,
+                    unstaking_duration: None,
+                },
+                vesting_contract: VestingInfo::Existing {
+                    vesting_contract_address: vesting_addr.to_string(),
+                }
+            },
+            active_threshold: None,
+        },
+    );
+
+    let token_addr: Addr = app
+        .wrap()
+        .query_wasm_smart(voting_addr.clone(), &QueryMsg::TokenContract {})
+        .unwrap();
+    let staking_addr: Addr = app
+        .wrap()
+        .query_wasm_smart(voting_addr.clone(), &QueryMsg::StakingContract {})
+        .unwrap();
+    let vesting_addr: Addr = app
+        .wrap()
+        .query_wasm_smart(voting_addr.clone(), &QueryMsg::VestingContract {})
+        .unwrap();
+
+    let token_info: TokenInfoResponse = app
+        .wrap()
+        .query_wasm_smart(token_addr.clone(), &cw20::Cw20QueryMsg::TokenInfo {})
+        .unwrap();
+    assert_eq!(
+        token_info,
+        TokenInfoResponse {
+            name: "DAO DAO".to_string(),
+            symbol: "DAO".to_string(),
+            decimals: 3,
+            total_supply: Uint128::from(2u64)
+        }
+    );
+
+    let minter_info: Option<MinterResponse> = app
+        .wrap()
+        .query_wasm_smart(token_addr.clone(), &cw20::Cw20QueryMsg::Minter {})
+        .unwrap();
+    assert!(minter_info.is_none());
+
+    // Expect 0 as creator has not staked and not vested
+    let creator_voting_power: VotingPowerAtHeightResponse = app
+        .wrap()
+        .query_wasm_smart(
+            voting_addr.clone(),
+            &QueryMsg::VotingPowerAtHeight {
+                address: CREATOR_ADDR.clone().to_string(),
+                height: None,
+            },
+        )
+        .unwrap();
+
+    assert_eq!(
+        creator_voting_power,
+        VotingPowerAtHeightResponse {
+            power: Uint128::zero(),
+            height: app.block_info().height,
+        }
+    );
+
+    // Expect 0 as DAO has not staked and not staked
+    let dao_voting_power: VotingPowerAtHeightResponse = app
+        .wrap()
+        .query_wasm_smart(
+            voting_addr.clone(),
+            &QueryMsg::VotingPowerAtHeight {
+                address: DAO_ADDR.to_string(),
+                height: None,
+            },
+        )
+        .unwrap();
+
+    assert_eq!(
+        dao_voting_power,
+        VotingPowerAtHeightResponse {
+            power: Uint128::zero(),
+            height: app.block_info().height,
+        }
+    );
+
+    // Stake 1 token as creator
+    stake_tokens(&mut app, staking_addr, token_addr, CREATOR_ADDR, 1);
+    app.update_block(next_block);
+
+    // Expect 1 as creator has now staked 1
+    let creator_voting_power: VotingPowerAtHeightResponse = app
+        .wrap()
+        .query_wasm_smart(
+            voting_addr.clone(),
+            &QueryMsg::VotingPowerAtHeight {
+                address: CREATOR_ADDR.to_string(),
+                height: None,
+            },
+        )
+        .unwrap();
+
+    assert_eq!(
+        creator_voting_power,
+        VotingPowerAtHeightResponse {
+            power: Uint128::new(1u128),
+            height: app.block_info().height,
+        }
+    );
+
+    // Expect 1 as only one token staked to make up whole voting power
+    let total_voting_power: VotingPowerAtHeightResponse = app
+        .wrap()
+        .query_wasm_smart(voting_addr.clone(), &QueryMsg::TotalPowerAtHeight { height: None })
+        .unwrap();
+
+    assert_eq!(
+        total_voting_power,
+        VotingPowerAtHeightResponse {
+            power: Uint128::new(1u128),
+            height: app.block_info().height,
+        }
+    );
+
+    // Vest 1 token as creator
+    let curr_time: Timestamp = app.block_info().time;
+    register_vesting_account(
+        &mut app,
+        Addr::unchecked(CREATOR_ADDR),
+        vesting_addr.clone(),
+        CREATOR_ADDR,
+        Uint128::new(1),
+        curr_time.clone(),
+        curr_time.plus_seconds(5),
+    );
+
+    app.update_block(next_block);
+    vesting_contract_snapshot(&mut app, vesting_addr.clone(), CREATOR_ADDR);
+
+    // Expect 2 as creator has now staked 1 and vested 1
+    let creator_voting_power: VotingPowerAtHeightResponse = app
+        .wrap()
+        .query_wasm_smart(
+            voting_addr.clone(),
+            &QueryMsg::VotingPowerAtHeight {
+                address: CREATOR_ADDR.to_string(),
+                height: None,
+            },
+        )
+        .unwrap();
+
+    assert_eq!(
+        creator_voting_power,
+        VotingPowerAtHeightResponse {
+            power: Uint128::new(2u128),
+            height: app.block_info().height,
+        }
+    );
+
+}
+
+#[test]
+fn test_existing_cw20_existing_staking_existing_vesting() {
     let mut app = App::default();
     let cw20_id = app.store_code(cw20_contract());
     let voting_id = app.store_code(staked_balance_voting_contract());

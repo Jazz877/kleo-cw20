@@ -54,7 +54,10 @@ pub fn instantiate(
             if let Some(ActiveThreshold::AbsoluteCount { count }) = msg.active_threshold {
                 assert_valid_absolute_count_threshold(deps.as_ref(), address.clone(), count)?;
             }
-            let mut staking_contract_sub_msg: Option<SubMsg> = None;
+
+            let mut staking_msg: Option<SubMsg> = None;
+            let mut staking_contract_addr: Option<Addr> = None;
+
             match staking_contract {
                 StakingInfo::Existing {
                     staking_contract_address,
@@ -70,7 +73,7 @@ pub fn instantiate(
                         return Err(ContractError::StakingContractMismatch {});
                     }
                     STAKING_CONTRACT.save(deps.storage, &staking_contract_address)?;
-
+                    staking_contract_addr = Some(staking_contract_address.clone());
                 }
                 StakingInfo::New {
                     staking_code_id,
@@ -89,7 +92,7 @@ pub fn instantiate(
                         })?,
                     };
                     let msg = SubMsg::reply_on_success(msg, INSTANTIATE_STAKING_REPLY_ID);
-                    staking_contract_sub_msg = Some(msg);
+                    staking_msg = Some(msg);
                 }
             }
             match vesting_contract {
@@ -109,14 +112,25 @@ pub fn instantiate(
 
                     VESTING_CONTRACT.save(deps.storage, &vesting_contract_address)?;
 
-                    if Some(staking_contract_sub_msg) {
-                        Ok(Response::default().add_attribute("action", "instantiate")
-                            .add_attribute("token", "existing_token")
-                            .add_attribute("token_address", address)
-                            .add_attribute("vesting_contract", vesting_contract_address)
-                            .add_attribute("staking_contract", staking_contract_address)
-                    };
-                    Ok(response)
+                    match staking_msg {
+                        Some(msg) => {
+                            Ok(Response::new().add_attribute("action", "instantiate")
+                                .add_attribute("token", "existing_token")
+                                .add_attribute("token_address", address)
+                                .add_attribute("vesting_contract", "existing_vesting_contract")
+                                .add_attribute("vesting_contract_address", vesting_contract_address)
+                                .add_submessage(msg))
+                        },
+                        None => {
+                            Ok(Response::new().add_attribute("action", "instantiate")
+                                .add_attribute("token", "existing_token")
+                                .add_attribute("token_address", address)
+                                .add_attribute("vesting_contract", "existing_vesting_contract")
+                                .add_attribute("vesting_contract_address", vesting_contract_address)
+                                .add_attribute("staking_contract", "existing_staking_contract")
+                                .add_attribute("staking_contract_address", staking_contract_addr.unwrap()))
+                        },
+                    }
                 },
                 VestingInfo::New {
                     vesting_code_id: vesting_contract_code_id, owner_address
@@ -137,16 +151,24 @@ pub fn instantiate(
                         })?,
                     };
 
-                    let msg = SubMsg::reply_on_success(msg, INSTANTIATE_VESTING_REPLY_ID);
-                    response.add_attribute("action", "instantiate")
-                        .add_attribute("token", "existing_token")
-                        .add_attribute("token_address", address);
-                    match staking_contract_sub_msg {
-                        Some(msg) => response.add_submessage(msg),
-                        None => response.clone(),
-                    };
-                    response.add_submessage(msg);
-                    Ok(response)
+                    let vesting_msg = SubMsg::reply_on_success(msg, INSTANTIATE_VESTING_REPLY_ID);
+                    match staking_msg {
+                        Some(msg) => {
+                            Ok(Response::new().add_attribute("action", "instantiate")
+                                .add_attribute("token", "existing_token")
+                                .add_attribute("token_address", address)
+                                .add_submessage(msg)
+                                .add_submessage(vesting_msg))
+                        },
+                        None => {
+                            Ok(Response::new().add_attribute("action", "instantiate")
+                                .add_attribute("token", "existing_token")
+                                .add_attribute("token_address", address)
+                                .add_attribute("staking_contract", "existing_staking_contract")
+                                .add_attribute("staking_contract_address", staking_contract_addr.unwrap())
+                                .add_submessage(vesting_msg))
+                        },
+                    }
                 }
             }
         }
@@ -316,6 +338,7 @@ pub fn query_voting_power_at_height(
     height: Option<u64>,
 ) -> StdResult<Binary> {
     let staking_contract = STAKING_CONTRACT.load(deps.storage)?;
+    let vesting_contract = VESTING_CONTRACT.load(deps.storage)?;
     let valid_address = deps.api.addr_validate(&address)?;
     let staking_res: cw20_stake::msg::StakedBalanceAtHeightResponse = deps.querier.query_wasm_smart(
         staking_contract,
@@ -325,7 +348,7 @@ pub fn query_voting_power_at_height(
         },
     )?;
     let vesting_res: klmd_custom_vesting::msg::VestingAccountResponse = deps.querier.query_wasm_smart(
-        valid_address.clone(),
+        vesting_contract,
         &klmd_custom_vesting::msg::QueryMsg::VestingAccount { address: valid_address.clone(), height },
     )?;
     let staking_balance = staking_res.balance;
@@ -486,7 +509,7 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractEr
                             token_address: token.clone(),
                         })?,
                     };
-                    let vesting_init_resp = SubMsg::reply_on_success(vesting_init_msg, INSTANTIATE_STAKING_REPLY_ID);
+                    let vesting_init_resp = SubMsg::reply_on_success(vesting_init_msg, INSTANTIATE_VESTING_REPLY_ID);
 
                     Ok(Response::default()
                         .add_attribute("token_address", token)
