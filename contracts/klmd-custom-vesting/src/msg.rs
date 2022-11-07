@@ -20,6 +20,7 @@ pub enum ExecuteMsg {
     RegisterVestingAccount {
         address: Addr,
         vesting_amount: Uint128,
+        prevesting_amount: Uint128,
         start_time: Timestamp,
         end_time: Timestamp,
     },

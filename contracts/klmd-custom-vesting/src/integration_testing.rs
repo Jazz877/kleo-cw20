@@ -1,4 +1,4 @@
-use cosmwasm_std::{Empty, Addr, Uint128, coin};
+use cosmwasm_std::{Empty, Addr, Uint128, coin, Timestamp};
 use cw20::{Cw20Coin, Cw20ExecuteMsg, Cw20QueryMsg, BalanceResponse};
 use cw_multi_test::{Contract, ContractWrapper, App, Executor, next_block};
 use cw_utils::Duration;
@@ -115,6 +115,7 @@ fn simple_e2e_test() {
         &ExecuteMsg::RegisterVestingAccount {
             address: Addr::unchecked(USER1.to_string()),
             vesting_amount: Uint128::new(10_000_000),
+            prevesting_amount: Uint128::new(1_000_000),
             start_time: initial_block_time,
             end_time: initial_block_time.plus_seconds(100),
         },
@@ -138,15 +139,18 @@ fn simple_e2e_test() {
     };
 
     let res: VestingAccountResponse = app.wrap().query_wasm_smart(vesting_contract_addr.clone(), &msg).unwrap();
-
+    
     assert_eq!(
         VestingAccountResponse {
             address: Addr::unchecked(USER1.to_string()),
             vestings: VestingData {
+                prevesting_amount: Uint128::new(1_000_000u128),
+                prevested_amount: Uint128::new(10_000_000u128),
                 vesting_amount: Uint128::new(10_000_000u128),
                 vested_amount: Uint128::new(500_000u128),
                 claimable_amount: Uint128::new(500_000u128),
                 claimed_amount: Uint128::zero(),
+                registration_time: initial_block_time,
                 start_time: initial_block_time,
                 end_time: initial_block_time.plus_seconds(100u64),
             }
