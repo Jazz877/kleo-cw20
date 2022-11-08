@@ -19,6 +19,8 @@ pub fn instantiate(
     let token_address = msg.token_address;
     TOKEN_ADDRESS.save(deps.storage, &token_address)?;
     let vesting_info = TotalVestingInfo {
+        prevesting_amount: Uint128::zero(),
+        prevested_amount: Uint128::zero(),
         vesting_amount: Uint128::zero(),
         vested_amount: Uint128::zero(),
         claimed_amount: Uint128::zero(),
@@ -94,17 +96,23 @@ fn update_owner_address(deps: DepsMut, _env: Env, info: MessageInfo, owner_addre
 }
 
 fn compute_total_vesting_info(account_vesting_data: Vec<VestingData>) -> StdResult<TotalVestingInfo> {
+    let mut total_prevesting= Uint128::zero();
+    let mut total_prevested = Uint128::zero();
     let mut total_vested = Uint128::zero();
     let mut total_claimed= Uint128::zero();
     let mut total_vesting= Uint128::zero();
     for account_data in account_vesting_data.into_iter() {
+        total_prevested += account_data.prevested_amount;
         total_vested += account_data.vested_amount;
         total_claimed += account_data.claimed_amount;
         total_vesting += account_data.vesting_amount;
+        total_prevesting += account_data.prevesting_amount;
     }
 
     Ok(
         TotalVestingInfo {
+            prevesting_amount: total_prevesting,
+            prevested_amount: total_prevested,
             vesting_amount: total_vesting,
             vested_amount: total_vested,
             claimed_amount: total_claimed,

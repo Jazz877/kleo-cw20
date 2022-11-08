@@ -25,6 +25,8 @@ pub const OWNER_ADDRESS: Item<Addr> = Item::new("owner_address");
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug, Default)]
 pub struct TotalVestingInfo {
+    pub prevesting_amount: Uint128,
+    pub prevested_amount: Uint128,
     pub vesting_amount: Uint128,
     pub vested_amount: Uint128,
     pub claimed_amount: Uint128,
