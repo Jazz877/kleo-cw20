@@ -1,7 +1,7 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 
-use cosmwasm_std::{DepsMut, Env, MessageInfo, StdResult, Response, Addr, StdError, Storage, Timestamp, Uint128, WasmMsg, to_binary, attr, Binary, Deps, Order, Uint64, QueryRequest};
+use cosmwasm_std::{DepsMut, Env, MessageInfo, StdResult, Response, Addr, StdError, Storage, Timestamp, Uint128, WasmMsg, to_binary, attr, Binary, Deps, Order, Uint64, QueryRequest, BlockInfo};
 use cw20::Cw20ExecuteMsg;
 
 use crate::{msg::{InstantiateMsg, ExecuteMsg, QueryMsg, OwnerAddressResponse, VestingAccountResponse, TokenAddressResponse, VestingTotalResponse}, state::{OWNER_ADDRESS, TOKEN_ADDRESS, ACCOUNTS, Account, VestingData, TotalVestingInfo, VESTING_TOTAL, VESTING_DATA, get_vesting_data_from_account}};
@@ -106,7 +106,12 @@ fn compute_total_vesting_info(account_vesting_data: Vec<VestingData>) -> StdResu
         total_vested += account_data.vested_amount;
         total_claimed += account_data.claimed_amount;
         total_vesting += account_data.vesting_amount;
-        total_prevesting += account_data.prevesting_amount;
+
+        if account_data.vesting_amount > account_data.prevested_amount {
+            total_vesting += account_data.prevested_amount;
+        } else {
+            total_vesting += account_data.vesting_amount;
+        }
     }
 
     Ok(

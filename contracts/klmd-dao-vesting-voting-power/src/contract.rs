@@ -382,7 +382,7 @@ pub fn query_total_power_at_height(
         vesting_contract,
         &klmd_custom_vesting::msg::QueryMsg::VestingTotal { height },
     )?;
-    let vesting_power = vesting_res.info.vested_amount.checked_sub(vesting_res.info.claimed_amount).unwrap_or(Uint128::zero());
+    let vesting_power = vesting_res.info.vesting_amount.checked_sub(vesting_res.info.claimed_amount).unwrap_or(Uint128::zero());
 
     let power = staking_res.total.checked_add(vesting_power).unwrap_or(Uint128::zero());
 
