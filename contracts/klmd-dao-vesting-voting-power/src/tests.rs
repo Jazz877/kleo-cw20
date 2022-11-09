@@ -81,6 +81,7 @@ fn register_vesting_account(app: &mut App, account_addr: Addr, vesting_addr: Add
     let msg = klmd_custom_vesting::msg::ExecuteMsg::RegisterVestingAccount {
         address: account_addr.clone(),
         vesting_amount: amount,
+        prevesting_amount: Uint128::new(1u128),
         start_time,
         end_time,
     };
