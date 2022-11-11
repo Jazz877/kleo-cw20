@@ -49,7 +49,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
         } =>  register_vesting_account(deps, env, info, address, start_time, end_time, vesting_amount, prevesting_amount),
         ExecuteMsg::Claim {recipient} => claim(deps, env, info, recipient),
         ExecuteMsg::Snapshot {} => snapshot(deps, env, info),
-        ExecuteMsg::ProposalHookMsg(_) => snapshot(deps, env, info),
+        ExecuteMsg::ProposalHook(_) => snapshot(deps, env, info),
     }
 }
 
@@ -105,7 +105,6 @@ fn compute_total_vesting_info(account_vesting_data: Vec<VestingData>) -> StdResu
         total_prevested += account_data.prevested_amount;
         total_vested += account_data.vested_amount;
         total_claimed += account_data.claimed_amount;
-        total_vesting += account_data.vesting_amount;
 
         if account_data.vesting_amount > account_data.prevested_amount {
             total_vesting += account_data.prevested_amount;
@@ -506,7 +505,7 @@ mod testing {
         }).unwrap();
         let vesting_response: VestingAccountResponse = from_binary(&res).unwrap();
 
-        
+
         // it should be freezed since there were no snapshot in the middle
         assert_eq!(vesting_response, VestingAccountResponse {
             address: Addr::unchecked("addr0002".to_string()),
@@ -528,7 +527,7 @@ mod testing {
             address: Addr::unchecked("addr0002".to_string()), height: Some(1001),
         }).unwrap();
         let vesting_response: VestingAccountResponse = from_binary(&res).unwrap();
-    
+
         assert_eq!(
             vesting_response,
             VestingAccountResponse {
@@ -580,7 +579,7 @@ mod testing {
             address: Addr::unchecked("addr0002".to_string()), height: None,
         }).unwrap();
         let vesting_response: VestingAccountResponse = from_binary(&res).unwrap();
-  
+
         assert_eq!(vesting_response, VestingAccountResponse {
             address: Addr::unchecked("addr0002".to_string()),
             vestings: VestingData {
@@ -608,7 +607,7 @@ mod testing {
             address: Addr::unchecked("addr0002".to_string()), height: None,
         }).unwrap();
         let vesting_response: VestingAccountResponse = from_binary(&res).unwrap();
-        
+
         assert_eq!(vesting_response, VestingAccountResponse {
             address: Addr::unchecked("addr0002".to_string()),
             vestings: VestingData {
@@ -637,7 +636,7 @@ mod testing {
         }).unwrap();
 
         let vesting_response: VestingAccountResponse = from_binary(&res).unwrap();
-        
+
         assert_eq!(vesting_response, VestingAccountResponse {
             address: Addr::unchecked("addr0002".to_string()),
             vestings: VestingData {
@@ -659,7 +658,7 @@ mod testing {
         }).unwrap();
 
         let vesting_response: VestingAccountResponse = from_binary(&res).unwrap();
-        
+
         assert_eq!(vesting_response, VestingAccountResponse {
             address: Addr::unchecked("addr0002".to_string()),
             vestings: VestingData {
