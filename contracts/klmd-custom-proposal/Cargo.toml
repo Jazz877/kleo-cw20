@@ -1,0 +1,62 @@
+[package]
+name = "klmd-proposal-whitelisting"
+version = "0.1.0"
+authors = ["kleomedes-dev-team <https://kleomed.es/>"]
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# for more explicit tests, cargo test --features=backtraces
+backtraces = ["cosmwasm-std/backtraces"]
+# use library feature to disable all instantiate/execute/query exports
+library = []
+
+[package.metadata.scripts]
+optimize = """docker run --rm -v "$(pwd)":/code \
+  --mount type=volume,source="$(basename "$(pwd)")_cache",target=/code/target \
+  --mount type=volume,source=registry_cache,target=/usr/local/cargo/registry \
+  cosmwasm/rust-optimizer:0.12.5
+"""
+
+[dependencies]
+cosmwasm-std = { version = "1.0.0" }
+cosmwasm-storage = { version = "1.0.0" }
+cosmwasm-schema = { version = "1.0.0"}
+cw-storage-plus = "0.13"
+cw-utils = { version = "0.13" }
+cw2 = { version = "0.13" }
+cw20 = { version = "0.13" }
+cw3 = { version = "0.13" }
+thiserror = { version = "1.0" }
+cwd-core = { tag = "v1.0.0", git = "https://github.com/DA0-DA0/dao-contracts.git" }
+cwd-macros = { tag = "v1.0.0", git = "https://github.com/DA0-DA0/dao-contracts.git" }
+cwd-pre-propose-base = {tag = "v1.0.0", git = "https://github.com/DA0-DA0/dao-contracts.git" }
+cwd-pre-propose-single = { tag = "v1.0.0", git = "https://github.com/DA0-DA0/dao-contracts.git" }
+cwd-interface = { tag = "v1.0.0", git = "https://github.com/DA0-DA0/dao-contracts.git" }
+cwd-voting = { tag = "v1.0.0", git = "https://github.com/DA0-DA0/dao-contracts.git" }
+cwd-hooks = { tag = "v1.0.0", git = "https://github.com/DA0-DA0/dao-contracts.git" }
+cwd-proposal-hooks = { tag = "v1.0.0", git = "https://github.com/DA0-DA0/dao-contracts.git" }
+cwd-vote-hooks = { tag = "v1.0.0", git = "https://github.com/DA0-DA0/dao-contracts.git" }
+
+cw-utils-v1 = { git = "https://github.com/DA0-DA0/dao-contracts.git" }
+voting-v1 = { git = "https://github.com/DA0-DA0/dao-contracts.git" }
+cw-proposal-single-v1 = { git = "https://github.com/DA0-DA0/dao-contracts.git" }
+
+[dev-dependencies]
+cosmwasm-schema = { version = "1.0.0" }
+cw-multi-test = { version = "0.14" }
+cwd-voting-cw4 = { git = "https://github.com/DA0-DA0/dao-contracts.git" }
+cwd-voting-cw20-balance = { git = "https://github.com/DA0-DA0/dao-contracts.git" }
+cwd-voting-cw20-staked = { git = "https://github.com/DA0-DA0/dao-contracts.git" }
+cwd-voting-native-staked = { git = "https://github.com/DA0-DA0/dao-contracts.git" }
+cwd-voting-cw721-staked = { git = "https://github.com/DA0-DA0/dao-contracts.git" }
+cwd-pre-propose-single = { git = "https://github.com/DA0-DA0/dao-contracts.git" }
+cw-denom = { git = "https://github.com/DA0-DA0/dao-contracts.git" }
+cwd-testing = { git = "https://github.com/DA0-DA0/dao-contracts.git" }
+cw20-stake = { git = "https://github.com/DA0-DA0/dao-contracts.git" }
+cw20-base = { git = "https://github.com/DA0-DA0/dao-contracts.git" }
+cw721-base = { git = "https://github.com/DA0-DA0/dao-contracts.git" }
+cw4 = { git = "https://github.com/DA0-DA0/dao-contracts.git" }
+cw4-group = { git = "https://github.com/DA0-DA0/dao-contracts.git" }
