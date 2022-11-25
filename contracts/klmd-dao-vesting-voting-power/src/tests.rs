@@ -1,12 +1,9 @@
-use std::ops::Add;
 use cosmwasm_std::{testing::{mock_dependencies, mock_env}, to_binary, Addr, CosmosMsg, Decimal, Empty, Uint128, WasmMsg, Timestamp};
 use cw2::ContractVersion;
 use cw20::{BalanceResponse, Cw20Coin, MinterResponse, TokenInfoResponse};
-use cw20_base::contract::query_balance;
-use cw20_stake::contract::execute_claim;
 use cw_core_interface::voting::{InfoResponse, IsActiveResponse, TotalPowerAtHeightResponse, VotingPowerAtHeightResponse};
 use cw_multi_test::{next_block, App, Contract, ContractWrapper, Executor};
-use cw_utils::{Duration, Threshold};
+use cw_utils::{Duration};
 
 use crate::{
     contract::{migrate, CONTRACT_NAME, CONTRACT_VERSION},

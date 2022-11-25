@@ -1,5 +1,5 @@
 use cosmwasm_std::{Addr, Uint128, Timestamp};
-use proposal_hooks::{ProposalHookExecuteMsg, ProposalHookMsg};
+use proposal_hooks::{ProposalHookMsg};
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 
