@@ -70,3 +70,7 @@ pub struct VestingAccountResponse {
 pub struct VestingTotalResponse {
     pub info: TotalVestingInfo,
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub enum MigrateMsg {
+}

@@ -3,8 +3,14 @@ use cosmwasm_std::entry_point;
 
 use cosmwasm_std::{DepsMut, Env, MessageInfo, StdResult, Response, Addr, StdError, Storage, Timestamp, Uint128, WasmMsg, to_binary, attr, Binary, Deps, Order, Uint64};
 use cw20::Cw20ExecuteMsg;
+use cw20_base::ContractError;
+use cw2::set_contract_version;
 
 use crate::{msg::{InstantiateMsg, ExecuteMsg, QueryMsg, OwnerAddressResponse, VestingAccountResponse, TokenAddressResponse, VestingTotalResponse}, state::{OWNER_ADDRESS, TOKEN_ADDRESS, ACCOUNTS, Account, VestingData, TotalVestingInfo, VESTING_TOTAL, VESTING_DATA, get_vesting_data_from_account}};
+use crate::msg::MigrateMsg;
+
+pub(crate) const CONTRACT_NAME: &str = "crates.io:klmd-custom-vesting";
+pub(crate) const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -305,6 +311,13 @@ fn query_vesting_account(deps: Deps, env: Env, address: Addr, height: Option<u64
     let vesting_data = VESTING_DATA.may_load_at_height(deps.storage, &address, input_height)?.unwrap_or_default();
 
     Ok(VestingAccountResponse { address, vestings: vesting_data })
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    // Set contract to version to latest
+    set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
+    Ok(Response::default())
 }
 
 #[cfg(test)]
