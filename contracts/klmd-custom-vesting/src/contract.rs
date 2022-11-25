@@ -1,13 +1,12 @@
+use cosmwasm_std::{Addr, attr, Binary, Deps, DepsMut, Env, MessageInfo, Order, Response, StdError, StdResult, Storage, Timestamp, to_binary, Uint128, Uint64, WasmMsg};
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-
-use cosmwasm_std::{DepsMut, Env, MessageInfo, StdResult, Response, Addr, StdError, Storage, Timestamp, Uint128, WasmMsg, to_binary, attr, Binary, Deps, Order, Uint64};
 use cw20::Cw20ExecuteMsg;
 use cw20_base::ContractError;
 use cw2::set_contract_version;
 
-use crate::{msg::{InstantiateMsg, ExecuteMsg, QueryMsg, OwnerAddressResponse, VestingAccountResponse, TokenAddressResponse, VestingTotalResponse}, state::{OWNER_ADDRESS, TOKEN_ADDRESS, ACCOUNTS, Account, VestingData, TotalVestingInfo, VESTING_TOTAL, VESTING_DATA, get_vesting_data_from_account}};
-use crate::msg::MigrateMsg;
+use crate::{msg::{ExecuteMsg, InstantiateMsg, OwnerAddressResponse, QueryMsg, TokenAddressResponse, VestingAccountResponse, VestingTotalResponse}, state::{Account, ACCOUNTS, get_vesting_data_from_account, OWNER_ADDRESS, TOKEN_ADDRESS, TotalVestingInfo, VESTING_DATA, VESTING_TOTAL, VestingData}};
+use crate::msg::{InfoResponse, MigrateMsg};
 
 pub(crate) const CONTRACT_NAME: &str = "crates.io:klmd-custom-vesting";
 pub(crate) const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -19,6 +18,7 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> StdResult<Response> {
+    set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     let owner_address = msg.owner_address.unwrap_or(info.sender);
     OWNER_ADDRESS.save(deps.storage, &owner_address)?;
 
@@ -280,6 +280,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         } => to_binary(&query_vesting_account(deps, env, address, height)?),
         QueryMsg::TokenAddress {} => to_binary(&query_token_address(deps, env)?),
         QueryMsg::VestingTotal { height } => to_binary(&query_vesting_total(deps, env, height)?),
+        QueryMsg::Info {} => to_binary(&query_info(deps)?),
     }
 }
 
@@ -313,6 +314,11 @@ fn query_vesting_account(deps: Deps, env: Env, address: Addr, height: Option<u64
     Ok(VestingAccountResponse { address, vestings: vesting_data })
 }
 
+pub fn query_info(deps: Deps) -> StdResult<InfoResponse> {
+    let info = cw2::get_contract_version(deps.storage)?;
+    Ok(InfoResponse { info })
+}
+
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     // Set contract to version to latest
@@ -322,10 +328,11 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, C
 
 #[cfg(test)]
 mod testing {
-    use super::*;
-    use cosmwasm_std::{testing::{mock_dependencies, mock_env, mock_info}, Addr, from_binary};
+    use cosmwasm_std::{Addr, from_binary, testing::{mock_dependencies, mock_env, mock_info}};
 
     use crate::msg::InstantiateMsg;
+
+    use super::*;
 
     #[test]
     fn proper_instantiation() {
@@ -686,5 +693,15 @@ mod testing {
                 end_time: Timestamp::from_nanos(200),
             },
         });
+    }
+
+    #[test]
+    pub fn test_migrate_update_version() {
+        let mut deps = mock_dependencies();
+        cw2::set_contract_version(&mut deps.storage, "my-contract", "old-version").unwrap();
+        migrate(deps.as_mut(), mock_env(), MigrateMsg {}).unwrap();
+        let version = cw2::get_contract_version(&deps.storage).unwrap();
+        assert_eq!(version.version, CONTRACT_VERSION);
+        assert_eq!(version.contract, CONTRACT_NAME);
     }
 }

@@ -1,7 +1,7 @@
-use cw_storage_plus::{Item, Strategy, Map, SnapshotMap, SnapshotItem};
+use cosmwasm_std::{Addr, BlockInfo, StdError, StdResult, Timestamp, Uint128};
+use cw_storage_plus::{Item, Map, SnapshotItem, SnapshotMap, Strategy};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use cosmwasm_std::{Timestamp, Addr, Uint128, BlockInfo, StdResult, StdError};
 
 pub const ACCOUNTS: Map<&Addr, Account> = Map::new(
     "vesting_account",
@@ -75,9 +75,9 @@ impl Default for VestingData {
 impl Account {
     pub fn validate(&self, block_info: &BlockInfo) -> StdResult<()> {
 
-        if self.prevesting_amount.is_zero() {
-            return Err(StdError::generic_err("assert(prevesting_amount > 0)"));
-        }
+        // if self.prevesting_amount.is_zero() {
+        //     return Err(StdError::generic_err("assert(prevesting_amount > 0)"));
+        // }
 
         if self.vesting_amount.is_zero() {
             return Err(StdError::generic_err("assert(vesting_amount > 0)"));
@@ -131,7 +131,7 @@ impl Account {
         let prevested_token = self.vesting_amount
                     .checked_mul(Uint128::from(block_info.time.nanos() - self.registration_time.nanos()))?
                     .checked_div(Uint128::from(self.start_time.nanos() - self.registration_time.nanos()))?;
-        
+
         if self.prevesting_amount > prevested_token {
             return Ok(self.prevesting_amount.clone());
         }
@@ -142,7 +142,7 @@ impl Account {
 
 #[cfg(test)]
 mod test {
-    use cosmwasm_std::{Addr, Uint128, Timestamp, testing::mock_env};
+    use cosmwasm_std::{Addr, testing::mock_env, Timestamp, Uint128};
 
     use super::Account;
 

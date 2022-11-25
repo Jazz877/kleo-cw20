@@ -1,8 +1,9 @@
-use cosmwasm_std::{Empty, Addr, Uint128, coin, Timestamp};
-use cw20::{Cw20Coin, Cw20ExecuteMsg, Cw20QueryMsg, BalanceResponse};
-use cw_multi_test::{Contract, ContractWrapper, App, Executor, next_block};
-use cw_utils::Duration;
-use crate::{contract, msg::{InstantiateMsg, ExecuteMsg, QueryMsg, VestingAccountResponse}, state::VestingData};
+use cosmwasm_std::{Addr, coin, CosmosMsg, Empty, to_binary, Uint128, WasmMsg};
+use cw20::{BalanceResponse, Cw20Coin, Cw20ExecuteMsg, Cw20QueryMsg};
+use cw_multi_test::{App, Contract, ContractWrapper, Executor, next_block};
+
+use crate::{contract, msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, VestingAccountResponse}, state::VestingData};
+use crate::msg::InfoResponse;
 
 const OWNER: &str = "owner0000";
 const INITIAL_BALANCE: u128 = 100_000_000;
@@ -24,7 +25,7 @@ pub fn contract_vesting() -> Box<dyn Contract<Empty>> {
         contract::execute,
         contract::instantiate,
         contract::query,
-    );
+    ).with_migrate(crate::contract::migrate);
     Box::new(contract)
 }
 
@@ -65,7 +66,7 @@ fn instantiate_vesting(app: &mut App, token_address: Addr) -> Addr {
         token_address: token_address,
         owner_address: Some(Addr::unchecked(OWNER)),
     };
-    app.instantiate_contract(vesting_code_id, Addr::unchecked(OWNER), &msg, &[], "vesting", None)
+    app.instantiate_contract(vesting_code_id, Addr::unchecked(OWNER), &msg, &[], "vesting", Some(OWNER.to_string()))
         .unwrap()
 }
 
@@ -139,7 +140,7 @@ fn simple_e2e_test() {
     };
 
     let res: VestingAccountResponse = app.wrap().query_wasm_smart(vesting_contract_addr.clone(), &msg).unwrap();
-    
+
     assert_eq!(
         VestingAccountResponse {
             address: Addr::unchecked(USER1.to_string()),
@@ -192,4 +193,35 @@ fn simple_e2e_test() {
 
     let owner_balance = query_cw20_balance(&app, cw20_contract_addr.clone(), Addr::unchecked(OWNER.to_string()));
     assert_eq!(Uint128::new(99_000_000), owner_balance);
+}
+
+#[test]
+fn test_migrate() {
+    let mut app = mock_app();
+    let cw20_contract_addr = instantiate_cw20(&mut app);
+    let vesting_contract_addr = instantiate_vesting(&mut app, cw20_contract_addr.clone());
+
+    let new_vesting_contract_id = app.store_code(contract_vesting());
+
+    let info: InfoResponse = app
+        .wrap()
+        .query_wasm_smart(vesting_contract_addr.clone(), &QueryMsg::Info {})
+        .unwrap();
+
+    app.execute(
+        Addr::unchecked(OWNER),
+        CosmosMsg::Wasm(WasmMsg::Migrate {
+            contract_addr: vesting_contract_addr.clone().to_string(),
+            new_code_id: new_vesting_contract_id,
+            msg: to_binary(&MigrateMsg {}).unwrap(),
+        }),
+    )
+        .unwrap();
+
+    let new_info: InfoResponse = app
+        .wrap()
+        .query_wasm_smart(vesting_contract_addr, &QueryMsg::Info {})
+        .unwrap();
+
+    assert_eq!(info, new_info);
 }

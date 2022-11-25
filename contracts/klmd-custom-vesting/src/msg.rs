@@ -1,9 +1,10 @@
-use cosmwasm_std::{Addr, Uint128, Timestamp};
-use proposal_hooks::{ProposalHookMsg};
+use cosmwasm_std::{Addr, Timestamp, Uint128};
+use cw2::ContractVersion;
+use proposal_hooks::ProposalHookMsg;
 use schemars::JsonSchema;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-use crate::state::{VestingData, TotalVestingInfo};
+use crate::state::{TotalVestingInfo, VestingData};
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct InstantiateMsg {
@@ -48,6 +49,7 @@ pub enum QueryMsg {
     VestingTotal {
         height: Option<u64>,
     },
+    Info {},
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, PartialEq, Debug)]
@@ -71,6 +73,11 @@ pub struct VestingTotalResponse {
     pub info: TotalVestingInfo,
 }
 
+#[derive(Serialize, Deserialize, JsonSchema, PartialEq, Debug)]
+pub struct InfoResponse {
+    pub info: ContractVersion,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub enum MigrateMsg {
+pub struct MigrateMsg {
 }
