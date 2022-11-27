@@ -1,4 +1,4 @@
-use cosmwasm_std::{Addr, coin, CosmosMsg, Empty, to_binary, Uint128, WasmMsg};
+use cosmwasm_std::{Addr, coin, CosmosMsg, Empty, Timestamp, to_binary, Uint128, WasmMsg};
 use cw20::{BalanceResponse, Cw20Coin, Cw20ExecuteMsg, Cw20QueryMsg};
 use cw_multi_test::{App, Contract, ContractWrapper, Executor, next_block};
 
@@ -224,4 +224,16 @@ fn test_migrate() {
         .unwrap();
 
     assert_eq!(info, new_info);
+}
+
+#[test]
+fn to_json() {
+    let msg = ExecuteMsg::RegisterVestingAccount {
+        address: Addr::unchecked("juno0001".to_string()),
+        vesting_amount: Uint128::new(3_000_000_000_000),
+        prevesting_amount: Uint128::new(30_000_000_000),
+        start_time: Timestamp::from_nanos(1669466438268000000),
+        end_time: Timestamp::from_nanos(1669725638268000000),
+    };
+    println!("{}", serde_json::to_string(&msg).unwrap());
 }
