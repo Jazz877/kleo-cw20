@@ -41,6 +41,9 @@
         "claimable_amount",
         "claimed_amount",
         "end_time",
+        "prevested_amount",
+        "prevesting_amount",
+        "registration_time",
         "start_time",
         "vested_amount",
         "vesting_amount"
@@ -53,6 +56,15 @@
           "$ref": "#/definitions/Uint128"
         },
         "end_time": {
+          "$ref": "#/definitions/Timestamp"
+        },
+        "prevested_amount": {
+          "$ref": "#/definitions/Uint128"
+        },
+        "prevesting_amount": {
+          "$ref": "#/definitions/Uint128"
+        },
+        "registration_time": {
           "$ref": "#/definitions/Timestamp"
         },
         "start_time": {

@@ -352,7 +352,14 @@ pub fn query_voting_power_at_height(
         &klmd_custom_vesting::msg::QueryMsg::VestingAccount { address: valid_address.clone(), height },
     )?;
     let staking_balance = staking_res.balance;
-    let vesting_balance = vesting_res.vestings.claimable_amount;
+    //let vesting_balance = vesting_res.vestings.claimable_amount;
+    let vesting_balance;
+    if vesting_res.vestings.vesting_amount > vesting_res.vestings.prevested_amount {
+        vesting_balance = vesting_res.vestings.prevested_amount;
+    } else {
+        vesting_balance = vesting_res.vestings.vesting_amount.checked_sub(vesting_res.vestings.claimed_amount).unwrap_or(Uint128::zero());
+    }
+
     let power = staking_balance.checked_add(vesting_balance).unwrap_or(Uint128::zero());
     to_binary(&cw_core_interface::voting::VotingPowerAtHeightResponse {
         power,
@@ -375,7 +382,7 @@ pub fn query_total_power_at_height(
         vesting_contract,
         &klmd_custom_vesting::msg::QueryMsg::VestingTotal { height },
     )?;
-    let vesting_power = vesting_res.info.vested_amount.checked_sub(vesting_res.info.claimed_amount).unwrap_or(Uint128::zero());
+    let vesting_power = vesting_res.info.vesting_amount.checked_sub(vesting_res.info.claimed_amount).unwrap_or(Uint128::zero());
 
     let power = staking_res.total.checked_add(vesting_power).unwrap_or(Uint128::zero());
 
