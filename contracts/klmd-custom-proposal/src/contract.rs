@@ -64,10 +64,9 @@ pub fn instantiate(
         allow_revoting: msg.allow_revoting,
     };
     
-    let allowed_addresses: Vec<Addr> = Vec::new();
     // Initialize proposal count to zero so that queries return zero
     // instead of None.
-    ALLOWED_ADDRESSES.save(deps.storage, &allowed_addresses)?;
+    ALLOWED_ADDRESSES.save(deps.storage, &msg.pre_allowed_addresses)?;
 
     // Initialize proposal count to zero so that queries return zero
     // instead of None.

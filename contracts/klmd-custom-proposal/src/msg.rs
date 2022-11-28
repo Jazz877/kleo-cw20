@@ -1,4 +1,4 @@
-use cosmwasm_std::{CosmosMsg, Empty, Uint128};
+use cosmwasm_std::{CosmosMsg, Empty, Uint128, Addr};
 use cw_utils::Duration;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -32,6 +32,8 @@ pub struct InstantiateMsg {
     /// proposal. None if there is no deposit requirement, Some
     /// otherwise.
     pub deposit_info: Option<DepositInfo>,
+    /// Pre-allowed addresses 
+    pub pre_allowed_addresses: Vec<Addr>
 }
 
 /// Information about the token to use for proposal deposits.

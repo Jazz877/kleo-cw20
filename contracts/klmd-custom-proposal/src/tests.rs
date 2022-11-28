@@ -400,6 +400,10 @@ fn instantiate_with_cw20_balances_governance(
         vec![Cw20Coin {
             address: CREATOR_ADDR.to_string(),
             amount: Uint128::new(100_000_000),
+        },
+        Cw20Coin {
+            address: "pre_allowed".to_string(),
+            amount: Uint128::new(100_000_000),
         }]
     });
 
@@ -554,6 +558,7 @@ where
         only_members_execute: false,
         allow_revoting: false,
         deposit_info,
+        pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
     };
 
     let governance_addr =
@@ -720,6 +725,7 @@ fn test_propose() {
         only_members_execute: false,
         allow_revoting: false,
         deposit_info: None,
+        pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
     };
 
     let governance_addr =
@@ -791,7 +797,7 @@ fn test_propose() {
         min_voting_period: None,
         threshold,
         allow_revoting: false,
-        total_power: Uint128::new(100_000_000),
+        total_power: Uint128::new(200_000_000),
         msgs: vec![],
         status: Status::Open,
         votes: Votes::zero(),
@@ -801,6 +807,96 @@ fn test_propose() {
     assert_eq!(created.proposal, expected);
     assert_eq!(created.id, 1u64);
 }
+
+#[test]
+fn test_propose_with_pre_allowed_address() {
+    let mut app = App::default();
+    let govmod_id = app.store_code(single_proposal_contract());
+
+    let threshold = Threshold::AbsolutePercentage {
+        percentage: PercentageThreshold::Majority {},
+    };
+    let max_voting_period = cw_utils::Duration::Height(6);
+    let instantiate = InstantiateMsg {
+        threshold: threshold.clone(),
+        max_voting_period,
+        min_voting_period: None,
+        only_members_execute: false,
+        allow_revoting: false,
+        deposit_info: None,
+        pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
+    };
+
+    let governance_addr =
+        instantiate_with_cw20_balances_governance(&mut app, govmod_id, instantiate, None);
+    let governance_modules: Vec<Addr> = app
+        .wrap()
+        .query_wasm_smart(
+            governance_addr.clone(),
+            &cw_core::msg::QueryMsg::ProposalModules {
+                start_at: None,
+                limit: None,
+            },
+        )
+        .unwrap();
+
+    assert_eq!(governance_modules.len(), 1);
+    let govmod_single = governance_modules.into_iter().next().unwrap();
+
+    // Check that the governance module has been configured correctly.
+    let config: Config = app
+        .wrap()
+        .query_wasm_smart(govmod_single.clone(), &QueryMsg::Config {})
+        .unwrap();
+    let expected = Config {
+        threshold: threshold.clone(),
+        max_voting_period,
+        min_voting_period: None,
+        only_members_execute: false,
+        allow_revoting: false,
+        dao: governance_addr.clone(),
+        deposit_info: None,
+    };
+    assert_eq!(config, expected);
+
+    // Create a new proposal.
+    app.execute_contract(
+        Addr::unchecked("pre_allowed"),
+        govmod_single.clone(),
+        &ExecuteMsg::Propose {
+            title: "A simple text proposal".to_string(),
+            description: "This is a simple text proposal".to_string(),
+            msgs: vec![],
+        },
+        &[],
+    )
+    .unwrap();
+
+    let created: ProposalResponse = app
+        .wrap()
+        .query_wasm_smart(govmod_single, &QueryMsg::Proposal { proposal_id: 1 })
+        .unwrap();
+    let current_block = app.block_info();
+    let expected = Proposal {
+        title: "A simple text proposal".to_string(),
+        description: "This is a simple text proposal".to_string(),
+        proposer: Addr::unchecked("pre_allowed"),
+        start_height: current_block.height,
+        expiration: max_voting_period.after(&current_block),
+        min_voting_period: None,
+        threshold,
+        allow_revoting: false,
+        total_power: Uint128::new(200_000_000),
+        msgs: vec![],
+        status: Status::Open,
+        votes: Votes::zero(),
+        deposit_info: None,
+    };
+
+    assert_eq!(created.proposal, expected);
+    assert_eq!(created.id, 1u64);
+}
+
 
 #[test]
 fn test_propose_supports_stargate_message() {
@@ -818,6 +914,7 @@ fn test_propose_supports_stargate_message() {
         only_members_execute: false,
         allow_revoting: false,
         deposit_info: None,
+        pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
     };
 
     let governance_addr =
@@ -876,7 +973,7 @@ fn test_propose_supports_stargate_message() {
         min_voting_period: None,
         threshold,
         allow_revoting: false,
-        total_power: Uint128::new(100_000_000),
+        total_power: Uint128::new(200_000_000),
         msgs: vec![CosmosMsg::Stargate {
             type_url: "foo_type".to_string(),
             value: to_binary("foo_bin").unwrap(),
@@ -1002,6 +1099,7 @@ fn test_voting_module_token_proposal_deposit_instantiate() {
             deposit: Uint128::new(1),
             refund_failed_proposals: true,
         }),
+        pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
     };
 
     let governance_addr =
@@ -1081,6 +1179,7 @@ fn test_different_token_proposal_deposit() {
             deposit: Uint128::new(1),
             refund_failed_proposals: true,
         }),
+        pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
     };
 
     instantiate_with_cw20_balances_governance(&mut app, govmod_id, instantiate, None);
@@ -1138,6 +1237,7 @@ fn test_bad_token_proposal_deposit() {
             deposit: Uint128::new(1),
             refund_failed_proposals: true,
         }),
+        pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
     };
 
     instantiate_with_cw20_balances_governance(&mut app, govmod_id, instantiate, None);
@@ -1163,6 +1263,7 @@ fn test_take_proposal_deposit() {
             deposit: Uint128::new(1),
             refund_failed_proposals: true,
         }),
+        pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
     };
 
     let governance_addr = instantiate_with_cw20_balances_governance(
@@ -1529,6 +1630,7 @@ fn test_execute_expired_proposal() {
             only_members_execute: true,
             allow_revoting: false,
             deposit_info: None,
+            pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
         },
         Some(vec![
             Cw20Coin {
@@ -1840,6 +1942,7 @@ fn test_query_list_proposals() {
             only_members_execute: true,
             allow_revoting: false,
             deposit_info: None,
+            pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
         },
         Some(vec![Cw20Coin {
             address: CREATOR_ADDR.to_string(),
@@ -1999,6 +2102,7 @@ fn test_hooks() {
         only_members_execute: false,
         allow_revoting: false,
         deposit_info: None,
+        pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
     };
 
     let governance_addr =
@@ -2173,6 +2277,7 @@ fn test_active_threshold_absolute() {
         only_members_execute: false,
         allow_revoting: false,
         deposit_info: None,
+        pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
     };
 
     let governance_addr = instantiate_with_staking_active_threshold(
@@ -2309,6 +2414,7 @@ fn test_active_threshold_percent() {
         only_members_execute: false,
         allow_revoting: false,
         deposit_info: None,
+        pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
     };
 
     // 20% needed to be active, 20% of 100000000 is 20000000
@@ -2446,6 +2552,7 @@ fn test_active_threshold_none() {
         only_members_execute: false,
         allow_revoting: false,
         deposit_info: None,
+        pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
     };
 
     let governance_addr =
@@ -2535,6 +2642,7 @@ fn test_active_threshold_none() {
         only_members_execute: false,
         allow_revoting: false,
         deposit_info: None,
+        pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
     };
 
     let governance_addr =
@@ -2596,6 +2704,7 @@ fn test_revoting() {
             only_members_execute: true,
             allow_revoting: true,
             deposit_info: None,
+            pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
         },
         Some(vec![
             Cw20Coin {
@@ -2732,6 +2841,7 @@ fn test_allow_revoting_config_changes() {
             only_members_execute: true,
             allow_revoting: true,
             deposit_info: None,
+            pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
         },
         Some(vec![
             Cw20Coin {
@@ -2885,6 +2995,7 @@ fn test_revoting_same_vote_twice() {
             only_members_execute: true,
             allow_revoting: true,
             deposit_info: None,
+            pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
         },
         Some(vec![
             Cw20Coin {
@@ -2997,6 +3108,7 @@ fn test_three_of_five_multisig() {
             only_members_execute: true,
             allow_revoting: false,
             deposit_info: None,
+            pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
         },
         Some(vec![
             Cw20Coin {
@@ -3133,6 +3245,7 @@ fn test_three_of_five_multisig_reject() {
             only_members_execute: true,
             allow_revoting: false,
             deposit_info: None,
+            pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
         },
         Some(vec![
             Cw20Coin {
@@ -3279,6 +3392,7 @@ fn test_voting_module_token_with_multisig_style_voting() {
                 deposit: Uint128::new(1),
                 refund_failed_proposals: true,
             }),
+            pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
         },
         Some(vec![
             Cw20Coin {
@@ -3314,6 +3428,7 @@ fn test_three_of_five_multisig_revoting() {
             only_members_execute: true,
             allow_revoting: true,
             deposit_info: None,
+            pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
         },
         Some(vec![
             Cw20Coin {
@@ -3557,6 +3672,7 @@ fn test_migrate() {
         only_members_execute: false,
         allow_revoting: false,
         deposit_info: None,
+        pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
     };
 
     let governance_addr =
@@ -3615,6 +3731,7 @@ fn test_proposal_count_initialized_to_zero() {
             only_members_execute: true,
             allow_revoting: false,
             deposit_info: None,
+            pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
         },
         Some(vec![
             Cw20Coin {
@@ -3661,6 +3778,7 @@ fn test_no_early_pass_with_min_duration() {
             only_members_execute: true,
             allow_revoting: false,
             deposit_info: None,
+            pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
         },
         Some(vec![
             Cw20Coin {
@@ -3759,6 +3877,7 @@ fn test_min_duration_units_missmatch() {
             only_members_execute: true,
             allow_revoting: false,
             deposit_info: None,
+            pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
         },
         Some(vec![
             Cw20Coin {
@@ -3791,6 +3910,7 @@ fn test_min_duration_larger_than_proposal_duration() {
             only_members_execute: true,
             allow_revoting: false,
             deposit_info: None,
+            pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
         },
         Some(vec![
             Cw20Coin {
@@ -3822,6 +3942,7 @@ fn test_min_duration_same_as_proposal_duration() {
             only_members_execute: true,
             allow_revoting: false,
             deposit_info: None,
+            pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
         },
         Some(vec![
             Cw20Coin {
@@ -3928,6 +4049,7 @@ fn test_propose_with_deregistered_address() {
         only_members_execute: false,
         allow_revoting: false,
         deposit_info: None,
+        pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
     };
 
     let governance_addr =
@@ -4026,6 +4148,7 @@ fn test_query_allowed_addresses() {
             only_members_execute: true,
             allow_revoting: false,
             deposit_info: None,
+            pre_allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")])
         },
         Some(vec![Cw20Coin {
             address: CREATOR_ADDR.to_string(),
@@ -4058,10 +4181,10 @@ fn test_query_allowed_addresses() {
         .unwrap();
 
     let expected_allowed_addresses = AllowedAddressesResponse {
-        allowed_addresses: Vec::new(),
+        allowed_addresses: Vec::from([Addr::unchecked("pre_allowed")]),
     };
 
-    // Test no allowed addresses
+    // Test only pre-allowed addresses
     assert_eq!(allowed_addresses, expected_allowed_addresses);
 
     // Test with two addresses
@@ -4093,7 +4216,7 @@ fn test_query_allowed_addresses() {
     .unwrap();
 
     let expected_allowed_addresses = AllowedAddressesResponse {
-        allowed_addresses: Vec::from([Addr::unchecked(CREATOR_ADDR), Addr::unchecked("tester"),]),
+        allowed_addresses: Vec::from([Addr::unchecked("pre_allowed"), Addr::unchecked(CREATOR_ADDR), Addr::unchecked("tester")]),
     };
 
     assert_eq!(allowed_addresses, expected_allowed_addresses);
@@ -4118,7 +4241,7 @@ fn test_query_allowed_addresses() {
     .unwrap();
 
     let expected_allowed_addresses = AllowedAddressesResponse {
-        allowed_addresses: Vec::from([Addr::unchecked(CREATOR_ADDR)]),
+        allowed_addresses: Vec::from([Addr::unchecked("pre_allowed"), Addr::unchecked(CREATOR_ADDR)]),
     };
 
     assert_eq!(allowed_addresses, expected_allowed_addresses);
