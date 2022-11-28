@@ -1,9 +1,9 @@
-use std::ops::Add;
 use cosmwasm_std::{testing::{mock_dependencies, mock_env}, to_binary, Addr, CosmosMsg, Decimal, Empty, Uint128, WasmMsg, Timestamp};
 use cw2::ContractVersion;
 use cw20::{BalanceResponse, Cw20Coin, MinterResponse, TokenInfoResponse};
-use cw_core_interface::voting::{InfoResponse, IsActiveResponse, VotingPowerAtHeightResponse};
+use cw_core_interface::voting::{InfoResponse, IsActiveResponse, TotalPowerAtHeightResponse, VotingPowerAtHeightResponse};
 use cw_multi_test::{next_block, App, Contract, ContractWrapper, Executor};
+use cw_utils::{Duration};
 
 use crate::{
     contract::{migrate, CONTRACT_NAME, CONTRACT_VERSION},
@@ -77,10 +77,20 @@ fn stake_tokens(app: &mut App, staking_addr: Addr, cw20_addr: Addr, sender: &str
         .unwrap();
 }
 
-fn register_vesting_account(app: &mut App, account_addr: Addr, vesting_addr: Addr, sender: &str, amount: Uint128, start_time: Timestamp, end_time: Timestamp) {
+fn send_token(app: &mut App, receiver: &str, cw20_addr: Addr, sender: &str, amount: u128) {
+    let msg = cw20::Cw20ExecuteMsg::Transfer {
+        amount: Uint128::new(amount),
+        recipient: receiver.to_string(),
+    };
+    app.execute_contract(Addr::unchecked(sender), cw20_addr, &msg, &[])
+        .unwrap();
+}
+
+fn register_vesting_account(app: &mut App, account_addr: Addr, vesting_addr: Addr, sender: &str, prevesting_amount: Uint128, amount: Uint128, start_time: Timestamp, end_time: Timestamp) {
     let msg = klmd_custom_vesting::msg::ExecuteMsg::RegisterVestingAccount {
         address: account_addr.clone(),
         vesting_amount: amount,
+        prevesting_amount: prevesting_amount,
         start_time,
         end_time,
     };
@@ -90,6 +100,14 @@ fn register_vesting_account(app: &mut App, account_addr: Addr, vesting_addr: Add
 
 fn vesting_contract_snapshot(app: &mut App, vesting_addr: Addr, sender: &str) {
     let msg = klmd_custom_vesting::msg::ExecuteMsg::Snapshot {};
+    app.execute_contract(Addr::unchecked(sender), vesting_addr, &msg, &[])
+        .unwrap();
+}
+
+fn vesting_contract_claim(app: &mut App, vesting_addr: Addr, sender: &str) {
+    let msg = klmd_custom_vesting::msg::ExecuteMsg::Claim {
+        recipient: None,
+    };
     app.execute_contract(Addr::unchecked(sender), vesting_addr, &msg, &[])
         .unwrap();
 }
@@ -387,6 +405,7 @@ fn test_new_cw20() {
         Addr::unchecked("creator"),
         vesting_addr.clone(),
         CREATOR_ADDR,
+        Uint128::zero(),
         Uint128::new(1u128),
         curr_time,
         curr_time.plus_seconds(5),
@@ -756,6 +775,7 @@ fn test_existing_cw20_new_staking_existing_vesting() {
         Addr::unchecked(CREATOR_ADDR),
         vesting_addr.clone(),
         CREATOR_ADDR,
+        Uint128::zero(),
         Uint128::new(1),
         curr_time.clone(),
         curr_time.plus_seconds(5),
@@ -1707,4 +1727,409 @@ pub fn test_migrate_update_version() {
     let version = cw2::get_contract_version(&deps.storage).unwrap();
     assert_eq!(version.version, CONTRACT_VERSION);
     assert_eq!(version.contract, CONTRACT_NAME);
+}
+
+// KLEO CUSTOM TESTS
+
+fn dao_core_contract() -> Box<dyn Contract<Empty>> {
+    let contract = ContractWrapper::new(
+        cw_core::contract::execute,
+        cw_core::contract::instantiate,
+        cw_core::contract::query,
+    )
+        .with_reply(cw_core::contract::reply);
+    Box::new(contract)
+}
+
+fn proposal_contract() -> Box<dyn Contract<Empty>> {
+    let contract = ContractWrapper::new(
+        cw_proposal_single::contract::execute,
+        cw_proposal_single::contract::instantiate,
+        cw_proposal_single::contract::query,
+    ).with_reply(cw_proposal_single::contract::reply);
+    Box::new(contract)
+}
+
+fn instantiate_dao(app: &mut App, dao_core_id: u64, msg: cw_core::msg::InstantiateMsg) -> Addr {
+    app.instantiate_contract(
+        dao_core_id,
+        Addr::unchecked(CREATOR_ADDR),
+        &msg,
+        &[],
+        "dao core module",
+        None,
+    )
+        .unwrap()
+}
+
+fn create_proposal(app: &mut App, proposal_addr: Addr, sender: &str) {
+    let msg = cw_proposal_single::msg::ExecuteMsg::Propose {
+        title: "test proposal".to_string(),
+        description: "test description".to_string(),
+        msgs: vec![],
+    };
+    app.execute_contract(Addr::unchecked(sender), proposal_addr, &msg, &[])
+        .unwrap();
+}
+
+#[test]
+pub fn test_contracts_integration_init() {
+    let mut app = App::default();
+    let dao_core_id = app.store_code(dao_core_contract());
+    let proposal_id = app.store_code(proposal_contract());
+    let cw20_id = app.store_code(cw20_contract());
+    let voting_id = app.store_code(staked_balance_voting_contract());
+    let staking_contract_id = app.store_code(staking_contract());
+    let vesting_contract_id = app.store_code(vesting_contract());
+
+    let dao_core_addr = instantiate_dao(
+        &mut app,
+        dao_core_id,
+        cw_core::msg::InstantiateMsg {
+            admin: Some(CREATOR_ADDR.to_string()),
+            name: "KLEO TEST DAO".to_string(),
+            description: "KLEO TEST DAO DESCR".to_string(),
+            image_url: None,
+            automatically_add_cw20s: false,
+            automatically_add_cw721s: false,
+            voting_module_instantiate_info: cw_core::msg::ModuleInstantiateInfo {
+                code_id: voting_id,
+                msg: to_binary(&InstantiateMsg {
+                    token_info: crate::msg::TokenInfo::New {
+                        code_id: cw20_id,
+                        label: "DAO DAO voting".to_string(),
+                        name: "DAO DAO".to_string(),
+                        symbol: "DAO".to_string(),
+                        decimals: 6,
+                        initial_balances: vec![Cw20Coin {
+                            address: CREATOR_ADDR.to_string(),
+                            amount: Uint128::from(200u128),
+                        }],
+                        marketing: None,
+                        unstaking_duration: None,
+                        staking_code_id: staking_contract_id,
+                        vesting_code_id: vesting_contract_id,
+                        vesting_owner_address: Some(CREATOR_ADDR.to_string()),
+                        initial_dao_balance: Some(Uint128::zero()),
+                    },
+                    active_threshold: None,
+                }).unwrap(),
+                admin: cw_core::msg::Admin::CoreContract {},
+                label: "voting module".to_string()
+            },
+            proposal_modules_instantiate_info: vec![
+                cw_core::msg::ModuleInstantiateInfo {
+                    code_id: proposal_id,
+                    msg: to_binary(&cw_proposal_single::msg::InstantiateMsg {
+                        threshold: voting::Threshold::AbsolutePercentage { percentage: voting::PercentageThreshold::Majority {}},
+                        max_voting_period: Duration::Height(5),
+                        min_voting_period: None,
+                        only_members_execute: true,
+                        allow_revoting: false,
+                        deposit_info: None
+                    }).unwrap(),
+                    admin: cw_core::msg::Admin::CoreContract {},
+                    label: "proposal module".to_string()
+                }
+            ],
+            initial_items: None
+        },
+    );
+
+    let voting_addr: Addr = app
+        .wrap()
+        .query_wasm_smart(dao_core_addr.clone(), &cw_core::msg::QueryMsg::VotingModule {})
+        .unwrap();
+
+    let staking_addr: Addr = app
+        .wrap()
+        .query_wasm_smart(voting_addr.clone(), &QueryMsg::StakingContract {})
+        .unwrap();
+
+    let cw20_addr: Addr = app
+        .wrap()
+        .query_wasm_smart(voting_addr.clone(), &QueryMsg::TokenContract {})
+        .unwrap();
+
+    let vesting_addr: Addr = app
+        .wrap()
+        .query_wasm_smart(voting_addr.clone(), &QueryMsg::VestingContract {})
+        .unwrap();
+
+    let proposal_addr: Vec<Addr> = app
+        .wrap()
+        .query_wasm_smart(dao_core_addr.clone(), &cw_core::msg::QueryMsg::ProposalModules {
+            start_at: None,
+            limit: None,
+        })
+        .unwrap();
+
+    // register snapshot for vesting on proposal module
+    let proposal_hook_msg = cw_proposal_single::msg::ExecuteMsg::AddProposalHook {
+        address: vesting_addr.clone().to_string(),
+    };
+    app.execute_contract(Addr::unchecked(dao_core_addr), proposal_addr[0].clone(), &proposal_hook_msg, &[])
+        .unwrap();
+
+    send_token(&mut app, vesting_addr.clone().as_str(), cw20_addr.clone(), CREATOR_ADDR, 100u128);
+
+    assert_eq!(voting_addr, Addr::unchecked("contract1"));
+    assert_eq!(cw20_addr, Addr::unchecked("contract2"));
+    assert_eq!(staking_addr, Addr::unchecked("contract3"));
+    assert_eq!(vesting_addr, Addr::unchecked("contract4"));
+    assert_eq!(proposal_addr, vec![Addr::unchecked("contract5")]);
+
+    let voting_power_response: VotingPowerAtHeightResponse = app
+        .wrap()
+        .query_wasm_smart(voting_addr.clone(), &QueryMsg::VotingPowerAtHeight {
+            address: CREATOR_ADDR.to_string(),
+            height: None,
+        })
+        .unwrap();
+
+    assert_eq!(voting_power_response, VotingPowerAtHeightResponse {
+        power: Uint128::new(0),
+        height: app.block_info().height
+    });
+
+    // boostrap vesting
+    let time_zero: Timestamp = app.block_info().time;
+    register_vesting_account(
+        &mut app,
+        Addr::unchecked(CREATOR_ADDR),
+        vesting_addr.clone(),
+        CREATOR_ADDR,
+        Uint128::new(10),
+        Uint128::new(100),
+        time_zero.plus_seconds(5),
+        time_zero.plus_seconds(105),
+    );
+
+    let voting_power_response: VotingPowerAtHeightResponse = app
+        .wrap()
+        .query_wasm_smart(voting_addr.clone(), &QueryMsg::VotingPowerAtHeight {
+            address: CREATOR_ADDR.to_string(),
+            height: None,
+        })
+        .unwrap();
+
+    assert_eq!(voting_power_response, VotingPowerAtHeightResponse {
+        power: Uint128::new(10),
+        height: app.block_info().height
+    });
+
+    // time 1 the prevesting is over so the power should be 100
+
+    app.update_block(next_block);
+    vesting_contract_snapshot(&mut app, vesting_addr.clone(), proposal_addr[0].clone().as_str());
+    let vesting_account_response: klmd_custom_vesting::msg::VestingAccountResponse = app
+        .wrap()
+        .query_wasm_smart(vesting_addr.clone(), &klmd_custom_vesting::msg::QueryMsg::VestingAccount {
+            address: Addr::unchecked(CREATOR_ADDR),
+            height: None,
+        })
+        .unwrap();
+
+    assert_eq!(
+        vesting_account_response,
+        klmd_custom_vesting::msg::VestingAccountResponse {
+            address: Addr::unchecked(CREATOR_ADDR),
+            vestings: klmd_custom_vesting::state::VestingData {
+                prevesting_amount: Uint128::new(10),
+                prevested_amount: Uint128::new(100),
+                vesting_amount: Uint128::new(100),
+                vested_amount: Uint128::zero(),
+                claimable_amount: Uint128::zero(),
+                claimed_amount: Uint128::zero(),
+                registration_time: time_zero,
+                start_time: time_zero.plus_seconds(5),
+                end_time: time_zero.plus_seconds(105),
+            }
+        }
+    );
+
+    let voting_power_response: VotingPowerAtHeightResponse = app
+        .wrap()
+        .query_wasm_smart(voting_addr.clone(), &QueryMsg::VotingPowerAtHeight {
+            address: CREATOR_ADDR.to_string(),
+            height: None,
+        })
+        .unwrap();
+
+    assert_eq!(voting_power_response, VotingPowerAtHeightResponse {
+        power: Uint128::new(100),
+        height: app.block_info().height
+    });
+
+    // time 2 the vesting is progressing so the power should be 100 because no claim happened
+    app.update_block(next_block);
+    vesting_contract_snapshot(&mut app, vesting_addr.clone(), proposal_addr[0].clone().as_str());
+    let vesting_account_response: klmd_custom_vesting::msg::VestingAccountResponse = app
+        .wrap()
+        .query_wasm_smart(vesting_addr.clone(), &klmd_custom_vesting::msg::QueryMsg::VestingAccount {
+            address: Addr::unchecked(CREATOR_ADDR),
+            height: None,
+        })
+        .unwrap();
+
+    assert_eq!(
+        vesting_account_response,
+        klmd_custom_vesting::msg::VestingAccountResponse {
+            address: Addr::unchecked(CREATOR_ADDR),
+            vestings: klmd_custom_vesting::state::VestingData {
+                prevesting_amount: Uint128::new(10),
+                prevested_amount: Uint128::new(100),
+                vesting_amount: Uint128::new(100),
+                vested_amount: Uint128::new(5),
+                claimable_amount: Uint128::new(5),
+                claimed_amount: Uint128::zero(),
+                registration_time: time_zero,
+                start_time: time_zero.plus_seconds(5),
+                end_time: time_zero.plus_seconds(105),
+            }
+        }
+    );
+
+    let voting_power_response: VotingPowerAtHeightResponse = app
+        .wrap()
+        .query_wasm_smart(voting_addr.clone(), &QueryMsg::VotingPowerAtHeight {
+            address: CREATOR_ADDR.to_string(),
+            height: None,
+        })
+        .unwrap();
+
+    assert_eq!(voting_power_response, VotingPowerAtHeightResponse {
+        power: Uint128::new(100),
+        height: app.block_info().height
+    });
+
+    // time 3 the vesting is progressing but the claim happened so the power should be 90 (10 vested and claimed)
+    app.update_block(next_block);
+    vesting_contract_claim(&mut app, vesting_addr.clone(), CREATOR_ADDR);
+    let vesting_account_response: klmd_custom_vesting::msg::VestingAccountResponse = app
+        .wrap()
+        .query_wasm_smart(vesting_addr.clone(), &klmd_custom_vesting::msg::QueryMsg::VestingAccount {
+            address: Addr::unchecked(CREATOR_ADDR),
+            height: None,
+        })
+        .unwrap();
+
+    assert_eq!(
+        vesting_account_response,
+        klmd_custom_vesting::msg::VestingAccountResponse {
+            address: Addr::unchecked(CREATOR_ADDR),
+            vestings: klmd_custom_vesting::state::VestingData {
+                prevesting_amount: Uint128::new(10),
+                prevested_amount: Uint128::new(100),
+                vesting_amount: Uint128::new(100),
+                vested_amount: Uint128::new(10),
+                claimable_amount: Uint128::new(0),
+                claimed_amount: Uint128::new(10),
+                registration_time: time_zero,
+                start_time: time_zero.plus_seconds(5),
+                end_time: time_zero.plus_seconds(105),
+            }
+        }
+    );
+
+    let voting_power_response: VotingPowerAtHeightResponse = app
+        .wrap()
+        .query_wasm_smart(voting_addr.clone(), &QueryMsg::VotingPowerAtHeight {
+            address: CREATOR_ADDR.to_string(),
+            height: None,
+        })
+        .unwrap();
+
+    assert_eq!(voting_power_response, VotingPowerAtHeightResponse {
+        power: Uint128::new(90),
+        height: app.block_info().height
+    });
+
+    let token_info: BalanceResponse = app
+        .wrap()
+        .query_wasm_smart(
+            cw20_addr.clone(),
+            &cw20::Cw20QueryMsg::Balance {
+                address: CREATOR_ADDR.to_string(),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        token_info,
+        BalanceResponse {
+            balance: Uint128::from(110u64)
+        }
+    );
+
+    // time 4&5 the creator has 90 power from vesting tokens and it stakes 10 more tokens so the power should be 100
+    app.update_block(next_block);
+    stake_tokens(&mut app, staking_addr.clone(), cw20_addr.clone(), CREATOR_ADDR, 10u128);
+
+    let token_info: BalanceResponse = app
+        .wrap()
+        .query_wasm_smart(
+            cw20_addr.clone(),
+            &cw20::Cw20QueryMsg::Balance {
+                address: CREATOR_ADDR.to_string(),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        token_info,
+        BalanceResponse {
+            balance: Uint128::from(100u64)
+        }
+    );
+
+    // next block to propagate the staking
+    app.update_block(next_block);
+
+    let staking_tokens: cw20_stake::msg::StakedBalanceAtHeightResponse = app
+        .wrap()
+        .query_wasm_smart(
+            staking_addr.clone(),
+            &cw20_stake::msg::QueryMsg::StakedBalanceAtHeight {
+                address: CREATOR_ADDR.to_string(),
+                height: None,
+            },
+        )
+        .unwrap();
+
+    assert_eq!(
+        staking_tokens,
+        cw20_stake::msg::StakedBalanceAtHeightResponse {
+            balance: Uint128::from(10u64),
+            height: app.block_info().height
+        }
+    );
+
+    let voting_power_response: VotingPowerAtHeightResponse = app
+        .wrap()
+        .query_wasm_smart(voting_addr.clone(), &QueryMsg::VotingPowerAtHeight {
+            address: CREATOR_ADDR.to_string(),
+            height: None,
+        })
+        .unwrap();
+
+    assert_eq!(voting_power_response, VotingPowerAtHeightResponse {
+        power: Uint128::new(100),
+        height: app.block_info().height
+    });
+
+    let total_voting_power: TotalPowerAtHeightResponse = app
+        .wrap()
+        .query_wasm_smart(voting_addr.clone(), &QueryMsg::TotalPowerAtHeight {
+            height: None,
+        })
+        .unwrap();
+
+    assert_eq!(total_voting_power, TotalPowerAtHeightResponse {
+        power: Uint128::new(100),
+        height: app.block_info().height
+    });
+
+    // time 6 create first proposal
+    app.update_block(next_block);
+    create_proposal(&mut app, proposal_addr[0].clone(), CREATOR_ADDR);
+
 }
