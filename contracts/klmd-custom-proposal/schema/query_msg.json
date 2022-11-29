@@ -19,6 +19,18 @@
       "description": "Gets information about a proposal. Returns `proposals::Proposal`.",
       "type": "object",
       "required": [
+        "allowed_addresses"
+      ],
+      "properties": {
+        "allowed_addresses": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
         "proposal"
       ],
       "properties": {
