@@ -246,11 +246,13 @@ fn claim(deps: DepsMut, env: Env, info: MessageInfo, recipient: Option<Addr>) ->
     let claimable_amount = vested_amount.checked_sub(claimed_amount)?;
 
     account.claimed_amount = vested_amount;
-    if account.claimed_amount == account.vesting_amount {
-        ACCOUNTS.remove(deps.storage, &_recipient);
-    } else {
-        ACCOUNTS.save(deps.storage, &_recipient, &account)?;
-    }
+    ACCOUNTS.save(deps.storage, &_recipient, &account)?;
+    // if account.claimed_amount == account.vesting_amount {
+    //     ACCOUNTS.remove(deps.storage, &_recipient);
+    //     VESTING_DATA.remove(deps.storage, &addr, &account_data, height)?;
+    // } else {
+    //     ACCOUNTS.save(deps.storage, &_recipient, &account)?;
+    // }
     let _ = snapshot(deps, env.clone(), info.clone())?;
 
     let res = Response::new()

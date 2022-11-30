@@ -1,4 +1,4 @@
-use cosmwasm_std::{Addr, coin, CosmosMsg, Empty, Timestamp, to_binary, Uint128, WasmMsg};
+use cosmwasm_std::{Addr, BlockInfo, coin, CosmosMsg, Empty, Timestamp, to_binary, Uint128, WasmMsg};
 use cw20::{BalanceResponse, Cw20Coin, Cw20ExecuteMsg, Cw20QueryMsg};
 use cw_multi_test::{App, Contract, ContractWrapper, Executor, next_block};
 
@@ -77,6 +77,11 @@ fn query_cw20_balance(app: &App, cw20_addr: Addr, address: Addr) -> Uint128 {
         .query_wasm_smart(cw20_addr, &msg).unwrap();
 
     balance_response.balance
+}
+
+fn jump_100_blocks(block: &mut BlockInfo) {
+    block.time = block.time.plus_seconds(500);
+    block.height += 100;
 }
 
 #[test]
@@ -172,6 +177,70 @@ fn simple_e2e_test() {
     let user1_balance = query_cw20_balance(&app, cw20_contract_addr.clone(), Addr::unchecked(USER1.to_string()));
     assert_eq!(Uint128::new(500_000u128), user1_balance);
 
+    // 5seconds more
+
+    app.update_block(next_block);
+
+    let msg = QueryMsg::VestingAccount {
+        address: Addr::unchecked(USER1.to_string()), height: Some(app.block_info().height),
+    };
+
+    let res: VestingAccountResponse = app.wrap().query_wasm_smart(vesting_contract_addr.clone(), &msg).unwrap();
+
+    assert_eq!(
+        VestingAccountResponse {
+            address: Addr::unchecked(USER1.to_string()),
+            vestings: VestingData {
+                prevesting_amount: Uint128::new(1_000_000u128),
+                prevested_amount: Uint128::new(10_000_000u128),
+                vesting_amount: Uint128::new(10_000_000u128),
+                vested_amount: Uint128::new(500_000u128),
+                claimable_amount: Uint128::new(0),
+                claimed_amount: Uint128::new(500_000u128),
+                registration_time: initial_block_time,
+                start_time: initial_block_time,
+                end_time: initial_block_time.plus_seconds(100u64),
+            }
+        },
+        res
+    );
+
+    // after some time
+    app.update_block(jump_100_blocks);
+    let _ = app.execute_contract(
+        Addr::unchecked(USER1.to_string()),
+        vesting_contract_addr.clone(),
+        &ExecuteMsg::Claim {
+            recipient: None,
+        },
+        &vec![],
+    );
+
+    let msg = QueryMsg::VestingAccount {
+        address: Addr::unchecked(USER1.to_string()), height: Some(app.block_info().height),
+    };
+
+    let res: VestingAccountResponse = app.wrap().query_wasm_smart(vesting_contract_addr.clone(), &msg).unwrap();
+
+    assert_eq!(
+        VestingAccountResponse {
+            address: Addr::unchecked(USER1.to_string()),
+            vestings: VestingData {
+                prevesting_amount: Uint128::new(1_000_000u128),
+                prevested_amount: Uint128::new(10_000_000u128),
+                vesting_amount: Uint128::new(10_000_000u128),
+                vested_amount: Uint128::new(10_000_000u128),
+                claimable_amount: Uint128::new(0),
+                claimed_amount: Uint128::new(10_000_000u128),
+                registration_time: initial_block_time,
+                start_time: initial_block_time,
+                end_time: initial_block_time.plus_seconds(100u64),
+            }
+        },
+        res
+    );
+
+
     // deregister user1
 
     //5seconds after
@@ -189,10 +258,10 @@ fn simple_e2e_test() {
     );
 
     let user1_balance = query_cw20_balance(&app, cw20_contract_addr.clone(), Addr::unchecked(USER1.to_string()));
-    assert_eq!(Uint128::new(1_000_000u128), user1_balance);
+    assert_eq!(Uint128::new(10_000_000u128), user1_balance);
 
     let owner_balance = query_cw20_balance(&app, cw20_contract_addr.clone(), Addr::unchecked(OWNER.to_string()));
-    assert_eq!(Uint128::new(99_000_000), owner_balance);
+    assert_eq!(Uint128::new(90_000_000), owner_balance);
 }
 
 #[test]
