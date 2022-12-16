@@ -5,10 +5,10 @@
     {
       "type": "object",
       "required": [
-        "owner_address"
+        "staking_contract"
       ],
       "properties": {
-        "owner_address": {
+        "staking_contract": {
           "type": "object"
         }
       },
@@ -17,10 +17,10 @@
     {
       "type": "object",
       "required": [
-        "token_address"
+        "vesting_contract"
       ],
       "properties": {
-        "token_address": {
+        "vesting_contract": {
           "type": "object"
         }
       },
@@ -29,17 +29,41 @@
     {
       "type": "object",
       "required": [
-        "vesting_account"
+        "dao"
       ],
       "properties": {
-        "vesting_account": {
+        "dao": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "active_threshold"
+      ],
+      "properties": {
+        "active_threshold": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "voting_power_at_height"
+      ],
+      "properties": {
+        "voting_power_at_height": {
           "type": "object",
           "required": [
             "address"
           ],
           "properties": {
             "address": {
-              "$ref": "#/definitions/Addr"
+              "type": "string"
             },
             "height": {
               "type": [
@@ -57,10 +81,10 @@
     {
       "type": "object",
       "required": [
-        "vesting_total"
+        "total_power_at_height"
       ],
       "properties": {
-        "vesting_total": {
+        "total_power_at_height": {
           "type": "object",
           "properties": {
             "height": {
@@ -87,12 +111,30 @@
         }
       },
       "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "token_contract"
+      ],
+      "properties": {
+        "token_contract": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "is_active"
+      ],
+      "properties": {
+        "is_active": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
     }
-  ],
-  "definitions": {
-    "Addr": {
-      "description": "A human readable address.\n\nIn Cosmos, this is typically bech32 encoded. But for multi-chain smart contracts no assumptions should be made other than being UTF-8 encoded and of reasonable length.\n\nThis type represents a validated address. It can be created in the following ways 1. Use `Addr::unchecked(input)` 2. Use `let checked: Addr = deps.api.addr_validate(input)?` 3. Use `let checked: Addr = deps.api.addr_humanize(canonical_addr)?` 4. Deserialize from JSON. This must only be done from JSON that was validated before such as a contract's state. `Addr` must not be used in messages sent by the user because this would result in unvalidated instances.\n\nThis type is immutable. If you really need to mutate it (Really? Are you sure?), create a mutable copy using `let mut mutable = Addr::to_string()` and operate on that `String` instance.",
-      "type": "string"
-    }
-  }
+  ]
 }

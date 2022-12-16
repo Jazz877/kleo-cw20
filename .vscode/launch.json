@@ -1,0 +1,251 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'cw20-merkle-airdrop'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=cw20-merkle-airdrop"
+                ],
+                "filter": {
+                    "name": "cw20-merkle-airdrop",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug example 'schema'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--example=schema",
+                    "--package=cw20-merkle-airdrop"
+                ],
+                "filter": {
+                    "name": "schema",
+                    "kind": "example"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in example 'schema'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--example=schema",
+                    "--package=cw20-merkle-airdrop"
+                ],
+                "filter": {
+                    "name": "schema",
+                    "kind": "example"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'klmd-custom-vesting'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=klmd-custom-vesting"
+                ],
+                "filter": {
+                    "name": "klmd-custom-vesting",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug example 'schema'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--example=schema",
+                    "--package=klmd-custom-vesting"
+                ],
+                "filter": {
+                    "name": "schema",
+                    "kind": "example"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in example 'schema'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--example=schema",
+                    "--package=klmd-custom-vesting"
+                ],
+                "filter": {
+                    "name": "schema",
+                    "kind": "example"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'klmd-cw20'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=klmd-cw20"
+                ],
+                "filter": {
+                    "name": "klmd-cw20",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug example 'schema'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--example=schema",
+                    "--package=klmd-cw20"
+                ],
+                "filter": {
+                    "name": "schema",
+                    "kind": "example"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in example 'schema'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--example=schema",
+                    "--package=klmd-cw20"
+                ],
+                "filter": {
+                    "name": "schema",
+                    "kind": "example"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'klmd-dao-vesting-voting-power'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=klmd-dao-vesting-voting-power"
+                ],
+                "filter": {
+                    "name": "klmd-dao-vesting-voting-power",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'klmd-vesting'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=klmd-vesting"
+                ],
+                "filter": {
+                    "name": "klmd-vesting",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug example 'schema'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--example=schema",
+                    "--package=klmd-vesting"
+                ],
+                "filter": {
+                    "name": "schema",
+                    "kind": "example"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in example 'schema'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--example=schema",
+                    "--package=klmd-vesting"
+                ],
+                "filter": {
+                    "name": "schema",
+                    "kind": "example"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
