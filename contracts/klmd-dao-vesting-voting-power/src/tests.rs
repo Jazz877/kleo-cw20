@@ -404,7 +404,7 @@ fn test_new_cw20() {
         &mut app,
         Addr::unchecked("creator"),
         vesting_addr.clone(),
-        CREATOR_ADDR,
+        "dao",
         Uint128::zero(),
         Uint128::new(1u128),
         curr_time,

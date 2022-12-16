@@ -1,6 +1,6 @@
 [package]
 name = "klmd-custom-vesting"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["kleomedes-dev-team <https://kleomed.es/>"]
 edition = "2018"
 

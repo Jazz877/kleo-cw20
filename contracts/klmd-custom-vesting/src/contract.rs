@@ -60,7 +60,8 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
 }
 
 fn only_owner(storage: &dyn Storage, sender: Addr) -> StdResult<()> {
-    if OWNER_ADDRESS.load(storage)? != sender {
+    let owner = OWNER_ADDRESS.load(storage)?;
+    if owner != sender {
         return Err(StdError::generic_err("unauthorized"));
     }
 
@@ -130,7 +131,8 @@ fn compute_total_vesting_info(account_vesting_data: Vec<VestingData>) -> StdResu
     )
 }
 
-fn register_vesting_account(deps: DepsMut, env: Env, _info: MessageInfo, address: Addr, start_time: Timestamp, end_time: Timestamp, vesting_amount: Uint128, prevesting_amount: Uint128) -> StdResult<Response> {
+fn register_vesting_account(deps: DepsMut, env: Env, info: MessageInfo, address: Addr, start_time: Timestamp, end_time: Timestamp, vesting_amount: Uint128, prevesting_amount: Uint128) -> StdResult<Response> {
+    only_owner(deps.storage, info.sender.clone())?;
     // vesting_account existence check
     if ACCOUNTS.has(deps.storage, &address) {
         return Err(StdError::generic_err("already exists"));
@@ -153,7 +155,7 @@ fn register_vesting_account(deps: DepsMut, env: Env, _info: MessageInfo, address
         &account,
     )?;
 
-    let _ = snapshot(deps, env, _info)?;
+    let _ = snapshot(deps, env, info)?;
 
     Ok(Response::new()
         .add_attribute("action", "register_vesting_account")
