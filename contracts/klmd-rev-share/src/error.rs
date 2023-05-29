@@ -10,6 +10,9 @@ pub enum ContractError {
     #[error("Unauthorized")]
     Unauthorized {},
 
+    #[error("No Stakers")]
+    NoStakers {},
+
     #[error("Invalid input")]
     InvalidInput {},
 
