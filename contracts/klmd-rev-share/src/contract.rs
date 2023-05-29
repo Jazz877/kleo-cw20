@@ -1,13 +1,13 @@
-use cosmwasm_std::{Addr, attr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Order, Response, StdResult, Storage, to_binary, Uint128};
+use cosmwasm_std::{Addr, attr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Storage, to_binary, Uint128, Uint64};
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-use cw20_stake::msg::{ListStakersResponse, StakedBalanceAtHeightResponse, StakerBalanceResponse};
+use cw20_stake::msg::{StakedBalanceAtHeightResponse, TotalStakedAtHeightResponse};
 use cw2::set_contract_version;
 use cw_utils::{Expiration, Scheduled};
 
 use crate::error::ContractError;
-use crate::msg::{AllAllocationsResponse, AllocationResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, IsClaimedResponse, LatestStageResponse, QueryMsg, TotalClaimedResponse};
-use crate::state::{CLAIM, compute_allocations, Config, CONFIG, LATEST_STAGE, STAGE_AMOUNT, STAGE_AMOUNT_CLAIMED, STAGE_DISTRIBUTIONS, STAGE_EXPIRATION, STAGE_PAUSED, STAGE_START};
+use crate::msg::{ConfigResponse, ExecuteMsg, InstantiateMsg, IsClaimedResponse, LatestStageResponse, QueryMsg, TotalClaimedResponse};
+use crate::state::{CLAIM, compute_allocation, Config, CONFIG, LATEST_STAGE, STAGE_AMOUNT, STAGE_AMOUNT_CLAIMED, STAGE_EXPIRATION, STAGE_HEIGHT, STAGE_PAUSED, STAGE_START};
 
 pub(crate) const CONTRACT_NAME: &str = "crates.io:klmd-rev-share";
 pub(crate) const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -66,7 +66,6 @@ pub fn execute(
             snapshot_block,
             expiration,
             start,
-            stakers_pagination_limit
         } => execute_create_new_stage(
             deps,
             env,
@@ -75,7 +74,6 @@ pub fn execute(
             snapshot_block,
             expiration,
             start,
-            stakers_pagination_limit,
         ),
         ExecuteMsg::Claim { stage } => execute_claim(deps, env, info, stage),
         ExecuteMsg::LockContract {} => execute_lock_contract(deps, env, info),
@@ -126,77 +124,24 @@ pub fn execute_update_config(
 
 pub fn execute_create_new_stage(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     total_amount: Uint128,
     snapshot_block: Option<u64>,
     expiration: Option<Expiration>,
     start: Option<Scheduled>,
-    stakers_pagination_limit: Option<u32>,
 ) -> Result<Response, ContractError> {
     // authorize owner
     only_owner(deps.storage, info.sender)?;
 
-    let mut all_stakers: Vec<StakerBalanceResponse> = Vec::new();
-
-    let staking_contract_addr = CONFIG.load(deps.storage)?.cw20_staking_address;
-    let mut start_after: Option<String> = None;
-    loop {
-        let list_stakers_request = cw20_stake::msg::QueryMsg::ListStakers {
-            start_after: start_after.clone(),
-            limit: stakers_pagination_limit,
-        };
-
-        let query_response: ListStakersResponse = deps.querier.query_wasm_smart(
-            staking_contract_addr.clone(),
-            &list_stakers_request,
-        )?;
-
-        if query_response.stakers.is_empty() {
-            break;
-        }
-
-        all_stakers.extend(query_response.stakers);
-        start_after = Some(all_stakers.last().unwrap().address.clone().to_string());
-    }
-
-    // query balance for each staker using height
-
-    let mut stakers: Vec<(Addr, Uint128)> = Vec::new();
-    for staker in all_stakers {
-        let valid_address = deps.api.addr_validate(&staker.address);
-        match valid_address {
-            Err(_) => continue,
-            Ok(addr) => {
-                let balance_request = cw20_stake::msg::QueryMsg::StakedBalanceAtHeight {
-                    address: staker.address.clone(),
-                    height: snapshot_block,
-                };
-
-                let balance_response: StakedBalanceAtHeightResponse = deps.querier.query_wasm_smart(
-                    staking_contract_addr.clone(),
-                    &balance_request,
-                )?;
-
-                stakers.push((addr, balance_response.balance));
-            }
-        }
-    }
-
-    let allocations = compute_allocations(
-        total_amount,
-        stakers,
-    );
-
     let stage = LATEST_STAGE.update(deps.storage, |stage| -> StdResult<_> { Ok(stage + 1) })?;
 
-    for (addr, allocation) in allocations {
-        STAGE_DISTRIBUTIONS.save(
-            deps.storage,
-            (stage, addr),
-            &allocation,
-        )?;
-    }
+    let stage_block = match snapshot_block {
+        Some(block) => block,
+        None => env.block.height,
+    };
+    // save snapshot block
+    STAGE_HEIGHT.save(deps.storage, stage, &Uint64::from(stage_block))?;
 
     // save expiration
     let exp = expiration.unwrap_or(Expiration::Never {});
@@ -250,43 +195,79 @@ pub fn execute_claim(
         return Err(ContractError::Claimed {});
     }
 
-    let addr_allocation = STAGE_DISTRIBUTIONS.load(deps.storage, (stage, info.sender.clone()))?;
+    let stage_amount = STAGE_AMOUNT.load(deps.storage, stage)?;
+    let stage_block = STAGE_HEIGHT.load(deps.storage, stage)?;
 
-    // Update total claimed to reflect
-    let mut claimed_amount = STAGE_AMOUNT_CLAIMED.load(deps.storage, stage)?;
-    claimed_amount += addr_allocation;
-    STAGE_AMOUNT_CLAIMED.save(deps.storage, stage, &claimed_amount)?;
+    let total_staked_response: TotalStakedAtHeightResponse = deps.querier.query_wasm_smart(
+        config.cw20_staking_address.clone(),
+        &cw20_stake::msg::QueryMsg::TotalStakedAtHeight {
+            height: Some(stage_block.into()),
+        }
+    )?;
 
-    CLAIM.save(deps.storage, (info.sender.to_string().into(), stage), &true)?;
+    let address_staked_response: StdResult<StakedBalanceAtHeightResponse> = deps.querier.query_wasm_smart(
+        config.cw20_staking_address,
+        &cw20_stake::msg::QueryMsg::StakedBalanceAtHeight {
+            address: info.sender.to_string(),
+            height: Some(stage_block.into()),
+        }
+    );
 
-    // send native tokens
-    let balance = deps
-        .querier
-        .query_balance(env.contract.address, config.native_token.clone())?;
+    // if address has no stake, return error
+    match address_staked_response {
+        Ok(response) => {
+            let amount = response.balance;
+            if amount == Uint128::zero() {
+                return Err(ContractError::NoStake {})
+            }
 
-    if balance.amount < addr_allocation {
-        return Err(ContractError::InsufficientFunds {
-            balance: balance.amount,
-            amount: addr_allocation,
-        });
+            let addr_allocation = compute_allocation(
+                stage_amount,
+                total_staked_response.total,
+                amount,
+            );
+
+            // Update total claimed to reflect
+            let mut claimed_amount = STAGE_AMOUNT_CLAIMED.load(deps.storage, stage)?;
+            claimed_amount += addr_allocation;
+            STAGE_AMOUNT_CLAIMED.save(deps.storage, stage, &claimed_amount)?;
+
+            CLAIM.save(deps.storage, (info.sender.to_string().into(), stage), &true)?;
+
+            // send native tokens
+            let balance = deps
+                .querier
+                .query_balance(env.contract.address, config.native_token.clone())?;
+
+            if balance.amount < addr_allocation {
+                return Err(ContractError::InsufficientFunds {
+                    balance: balance.amount,
+                    amount: addr_allocation,
+                });
+            }
+
+            let msg = BankMsg::Send {
+                to_address: info.sender.to_string(),
+                amount: vec![Coin {
+                    denom: config.native_token,
+                    amount: addr_allocation,
+                }],
+            };
+            let cosmos_msg = CosmosMsg::Bank(msg);
+
+            let res = Response::new().add_message(cosmos_msg).add_attributes(vec![
+                attr("action", "claim"),
+                attr("stage", stage.to_string()),
+                attr("address", info.sender.to_string()),
+                attr("amount", addr_allocation),
+            ]);
+            Ok(res)
+
+        },
+        Err(_) => {
+            return Err(ContractError::NoStake {})
+        }
     }
-
-    let msg = BankMsg::Send {
-        to_address: info.sender.to_string(),
-        amount: vec![Coin {
-            denom: config.native_token,
-            amount: addr_allocation,
-        }],
-    };
-    let cosmos_msg = CosmosMsg::Bank(msg);
-
-    let res = Response::new().add_message(cosmos_msg).add_attributes(vec![
-        attr("action", "claim"),
-        attr("stage", stage.to_string()),
-        attr("address", info.sender.to_string()),
-        attr("amount", addr_allocation),
-    ]);
-    Ok(res)
 }
 
 pub fn execute_lock_contract(
@@ -314,7 +295,6 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&query_config(deps)?),
         QueryMsg::LatestStage {} => to_binary(&query_latest_stage(deps)?),
-        QueryMsg::AllAllocations { stage } => to_binary(&query_all_allocations(deps, stage)?),
         QueryMsg::IsClaimed { stage, address } => to_binary(&query_is_claimed(deps, stage, address)?),
         QueryMsg::TotalClaimed { stage } => to_binary(&query_total_claimed(deps, stage)?),
     }
@@ -335,24 +315,6 @@ pub fn query_latest_stage(deps: Deps) -> StdResult<LatestStageResponse> {
     let resp = LatestStageResponse { latest_stage };
 
     Ok(resp)
-}
-
-pub fn query_all_allocations(deps: Deps, stage: u8) -> StdResult<AllAllocationsResponse> {
-    let mut allocations: Vec<AllocationResponse> = Vec::new();
-
-    let stage_distributions = STAGE_DISTRIBUTIONS
-        .prefix(stage)
-        .range(deps.storage, None, None, Order::Ascending);
-
-    for item in stage_distributions {
-        let (addr, allocation): (Addr, Uint128) = item?;
-        allocations.push(AllocationResponse {
-            address: addr.to_string().into(),
-            amount: allocation,
-        });
-    }
-
-    Ok(AllAllocationsResponse { allocations })
 }
 
 pub fn query_is_claimed(deps: Deps, stage: u8, address: String) -> StdResult<IsClaimedResponse> {
@@ -378,7 +340,7 @@ mod tests {
 
     use crate::contract::{execute, instantiate, query};
     use crate::error::ContractError;
-    use crate::msg::{AllAllocationsResponse, AllocationResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, IsClaimedResponse, LatestStageResponse, QueryMsg, TotalClaimedResponse};
+    use crate::msg::{ConfigResponse, ExecuteMsg, InstantiateMsg, IsClaimedResponse, LatestStageResponse, QueryMsg, TotalClaimedResponse};
 
     fn mock_app() -> App {
         App::default()
@@ -782,7 +744,6 @@ mod tests {
             snapshot_block: Some(app.block_info().height),
             expiration: None,
             start: None,
-            stakers_pagination_limit: Some(1),
         };
 
         app.execute_contract(
@@ -807,31 +768,7 @@ mod tests {
 
         assert_eq!(latest_stage_response, LatestStageResponse { latest_stage: 1 });
 
-        // query stage allocations
-        let msg = QueryMsg::AllAllocations {
-            stage: 1,
-        };
-
-        let stage_allocations_response: AllAllocationsResponse = app
-            .wrap()
-            .query_wasm_smart(rev_share_contract_addr.clone(), &msg)
-            .unwrap();
-
-        assert_eq!(
-            stage_allocations_response,
-            AllAllocationsResponse {
-                allocations: vec![
-                    AllocationResponse {
-                        address: user1.clone().to_string(),
-                        amount: Uint128::from(100_000_000u128),
-                    },
-                    AllocationResponse {
-                        address: user2.clone().to_string(),
-                        amount: Uint128::from(100_000_000u128),
-                    },
-                ],
-            }
-        );
+        // TODO: query stage block height
 
         // user1 claims half of his allocation
         let msg = ExecuteMsg::Claim {

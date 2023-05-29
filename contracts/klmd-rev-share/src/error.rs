@@ -13,6 +13,9 @@ pub enum ContractError {
     #[error("No Stakers")]
     NoStakers {},
 
+    #[error("No Stake")]
+    NoStake {},
+
     #[error("Invalid input")]
     InvalidInput {},
 

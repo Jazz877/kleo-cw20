@@ -27,7 +27,6 @@ pub enum ExecuteMsg {
         snapshot_block: Option<u64>,
         expiration: Option<Expiration>,
         start: Option<Scheduled>,
-        stakers_pagination_limit: Option<u32>,
     },
     Claim {
         stage: u8,
@@ -41,10 +40,6 @@ pub enum QueryMsg {
     Config {},
     #[returns(LatestStageResponse)]
     LatestStage {},
-    #[returns(AllAllocationsResponse)]
-    AllAllocations {
-        stage: u8,
-    },
     #[returns(IsClaimedResponse)]
     IsClaimed {
         stage: u8,
@@ -67,17 +62,6 @@ pub struct ConfigResponse {
 #[cw_serde]
 pub struct LatestStageResponse {
     pub latest_stage: u8,
-}
-
-#[cw_serde]
-pub struct AllocationResponse {
-    pub address: String,
-    pub amount: Uint128,
-}
-
-#[cw_serde]
-pub struct AllAllocationsResponse {
-    pub allocations: Vec<AllocationResponse>,
 }
 
 #[cw_serde]

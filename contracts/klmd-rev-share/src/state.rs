@@ -1,5 +1,5 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Addr, Uint128};
+use cosmwasm_std::{Addr, Uint128, Uint64};
 use cw_storage_plus::{Item, Map};
 use cw_utils::{Expiration, Scheduled};
 
@@ -36,81 +36,35 @@ pub const STAGE_AMOUNT_CLAIMED: Map<u8, Uint128> = Map::new(STAGE_AMOUNT_CLAIMED
 pub const STAGE_PAUSED_KEY: &str = "stage_paused";
 pub const STAGE_PAUSED: Map<u8, bool> = Map::new(STAGE_PAUSED_KEY);
 
-pub const STAGE_DISTRIBUTIONS_KEY: &str = "stage_distributions";
-pub const STAGE_DISTRIBUTIONS: Map<(u8, Addr), Uint128> = Map::new(STAGE_DISTRIBUTIONS_KEY);
+pub const STAGE_HEIGHT_KEY: &str = "stage_height";
+pub const STAGE_HEIGHT: Map<u8, Uint64> = Map::new(STAGE_HEIGHT_KEY);
 
-pub fn compute_allocations(
-    total_amount: Uint128,
-    staker_snapshot: Vec<(Addr, Uint128)>,
-) -> Vec<(Addr, Uint128)> {
-    let mut allocations: Vec<(Addr, Uint128)> = Vec::new();
-    let total_staked: Uint128 = staker_snapshot.iter().fold(Uint128::zero(), |acc, (_, stake)| acc + stake);
-    for (addr, cw20_stake) in staker_snapshot {
-        let allocation = cw20_stake.checked_multiply_ratio(
-            total_amount, total_staked).unwrap_or_default();
-        allocations.push((addr, Uint128::from(allocation)));
-    }
-    allocations
+pub fn compute_allocation(
+    stage_amount: Uint128,
+    total_staked: Uint128,
+    account_stake: Uint128,
+) -> Uint128 {
+    account_stake.checked_multiply_ratio(
+        stage_amount, total_staked).unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
-    use cosmwasm_std::{Addr, Uint128};
+    use cosmwasm_std::Uint128;
 
     #[test]
-    fn compute_allocations() {
-        let total_amount = Uint128::from(100_000u32);
-        let staker_snapshot = vec![
-            (Addr::unchecked("addr1"), Uint128::from(10u32)),
-            (Addr::unchecked("addr2"), Uint128::from(20u32)),
-            (Addr::unchecked("addr3"), Uint128::from(30u32)),
-            (Addr::unchecked("addr4"), Uint128::from(40u32)),
-        ];
+    fn compute_allocation() {
+        let stage_amount = Uint128::new(1000);
+        let total_staked = Uint128::new(10000);
+        let account_stake = Uint128::new(1000);
+        let allocation = super::compute_allocation(stage_amount, total_staked, account_stake);
+        assert_eq!(allocation, Uint128::new(100));
 
-        let allocations = super::compute_allocations(total_amount, staker_snapshot.clone());
-        let mut expected_allocations: Vec<(Addr, Uint128)> = vec![
-            (Addr::unchecked("addr1"), Uint128::from(10_000u32)),
-            (Addr::unchecked("addr2"), Uint128::from(20_000u32)),
-            (Addr::unchecked("addr3"), Uint128::from(30_000u32)),
-            (Addr::unchecked("addr4"), Uint128::from(40_000u32)),
-        ];
+        let stage_amount = Uint128::new(1000);
+        let total_staked = Uint128::new(10000);
+        let account_stake = Uint128::new(0);
 
-        assert_eq!(allocations, expected_allocations);
-
-
-        let total_amount = Uint128::from(10u8);
-
-        let allocations = super::compute_allocations(total_amount, staker_snapshot);
-
-        expected_allocations = vec![
-            (Addr::unchecked("addr1"), Uint128::from(1u8)),
-            (Addr::unchecked("addr2"), Uint128::from(2u8)),
-            (Addr::unchecked("addr3"), Uint128::from(3u8)),
-            (Addr::unchecked("addr4"), Uint128::from(4u8)),
-        ];
-
-        assert_eq!(allocations, expected_allocations);
-
-        let staker_snapshot = vec![
-            (Addr::unchecked("addr1"), Uint128::from(10u32)),
-            (Addr::unchecked("addr2"), Uint128::from(20u32)),
-            (Addr::unchecked("addr3"), Uint128::from(30u32)),
-            (Addr::unchecked("addr4"), Uint128::from(40u32)),
-            (Addr::unchecked("addr5"), Uint128::zero()),
-        ];
-
-        let total_amount = Uint128::from(10u8);
-
-        let allocations = super::compute_allocations(total_amount, staker_snapshot);
-
-        expected_allocations = vec![
-            (Addr::unchecked("addr1"), Uint128::from(1u8)),
-            (Addr::unchecked("addr2"), Uint128::from(2u8)),
-            (Addr::unchecked("addr3"), Uint128::from(3u8)),
-            (Addr::unchecked("addr4"), Uint128::from(4u8)),
-            (Addr::unchecked("addr5"), Uint128::zero()),
-        ];
-
-        assert_eq!(allocations, expected_allocations);
+        let allocation = super::compute_allocation(stage_amount, total_staked, account_stake);
+        assert_eq!(allocation, Uint128::new(0));
     }
 }
