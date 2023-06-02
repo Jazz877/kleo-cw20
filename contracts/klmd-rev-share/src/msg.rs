@@ -14,11 +14,13 @@ pub struct InstantiateMsg {
 #[cw_serde]
 pub enum ExecuteMsg {
     UpdateConfig {
-        /// NewOwner if non sent, contract gets locked. Recipients can receive airdrops
-        /// but owner cannot register new stages.
+        /// if not specified, no update
         new_owner: Option<String>,
+        /// if not specified, no update
         new_cw20_address: Option<String>,
+        /// if not specified, no update
         new_native_token: Option<String>,
+        /// if not specified, no update
         new_cw20_staking_address: Option<String>,
     },
     LockContract {},
@@ -31,6 +33,19 @@ pub enum ExecuteMsg {
     Claim {
         stage: u8,
     },
+    Pause {
+        stage: u8,
+    },
+    /// Withdraw the remaining tokens in the stage after expiry time (only owner)
+    Withdraw {
+        stage: u8,
+        address: String,
+    },
+    /// Withdraw all/some of the remaining tokens that the contract owns (only owner)
+    WithdrawAll {
+        address: String,
+        amount: Option<Uint128>,
+    },
 }
 
 #[cw_serde]
@@ -40,6 +55,8 @@ pub enum QueryMsg {
     Config {},
     #[returns(LatestStageResponse)]
     LatestStage {},
+    #[returns(StageBlockResponse)]
+    StageBlock { stage: u8 },
     #[returns(IsClaimedResponse)]
     IsClaimed {
         stage: u8,
@@ -49,6 +66,8 @@ pub enum QueryMsg {
     TotalClaimed {
         stage: u8
     },
+    #[returns(IsPausedResponse)]
+    IsPaused { stage: u8 },
 }
 
 #[cw_serde]
@@ -65,6 +84,11 @@ pub struct LatestStageResponse {
 }
 
 #[cw_serde]
+pub struct StageBlockResponse {
+    pub stage_block: u64,
+}
+
+#[cw_serde]
 pub struct IsClaimedResponse {
     pub is_claimed: bool,
 }
@@ -72,4 +96,9 @@ pub struct IsClaimedResponse {
 #[cw_serde]
 pub struct TotalClaimedResponse {
     pub total_claimed: Uint128,
+}
+
+#[cw_serde]
+pub struct IsPausedResponse {
+    pub is_paused: bool,
 }
