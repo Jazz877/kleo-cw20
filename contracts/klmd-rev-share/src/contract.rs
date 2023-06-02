@@ -215,7 +215,7 @@ pub fn execute_claim(
 
     let start = STAGE_START.may_load(deps.storage, stage)?;
     if let Some(start) = start {
-        if start.is_triggered(&env.block) {
+        if !start.is_triggered(&env.block) {
             return Err(ContractError::StageNotBegun { stage, start });
         }
     }
@@ -519,7 +519,7 @@ mod tests {
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
     use cw20::Cw20Coin;
     use cw_multi_test::{App, Contract, ContractWrapper, Executor, next_block};
-    use cw_utils::Expiration;
+    use cw_utils::{Expiration, Scheduled};
 
     use crate::contract::{execute, instantiate, query};
     use crate::error::ContractError;
@@ -1314,6 +1314,158 @@ mod tests {
         );
 
         assert_eq!(rev_share_contract_balance, Coin { denom: "ujunox".to_string(), amount: Uint128::zero() });
+    }
+
+    #[test]
+    fn stage_starts() {
+        let admin = admin();
+        let user1 = user("user0001");
+        let mut app = mock_app();
+
+        let rev_share_contract_addr = initialize_rev_share_contract(&mut app);
+
+        // wait for 1 block
+        app.update_block(next_block);
+
+        // create new stage
+        let start = Scheduled::AtHeight(app.block_info().height + 10);
+        let msg = ExecuteMsg::CreateNewStage {
+            total_amount: Uint128::from(200_000_000u128),
+            snapshot_block: Some(app.block_info().height),
+            expiration: Some(Expiration::AtHeight(app.block_info().height + 200)),
+            start: Some(start),
+        };
+
+        app.execute_contract(
+            admin.clone(),
+            rev_share_contract_addr.clone(),
+            &msg,
+            &[],
+        ).unwrap();
+
+        mint_native(
+            &mut app, rev_share_contract_addr.clone().to_string(),
+            "ujunox".to_string(), Uint128::from(200_000_000u128),
+        );
+
+
+        // Claim some tokens before stage starts
+        let msg = ExecuteMsg::Claim {
+            stage: 1u8,
+        };
+       let error = app.execute_contract(
+            user1.clone(),
+            rev_share_contract_addr.clone(),
+            &msg,
+            &[],
+        ).unwrap_err();
+
+        assert_eq!(
+            error.downcast::<ContractError>().unwrap(),
+            ContractError::StageNotBegun { stage: 1u8, start }
+        );
+
+        app.update_block(jump_100_blocks);
+
+        // Claim some tokens
+        let msg = ExecuteMsg::Claim {
+            stage: 1u8,
+        };
+
+        app.execute_contract(
+            user1.clone(),
+            rev_share_contract_addr.clone(),
+            &msg,
+            &[],
+        ).unwrap();
+
+        // query balance of user1 after stage starts
+        let balance_response = query_balance_native(
+            &mut app,
+            &user1,
+            "ujunox".to_string(),
+        );
+
+        assert_eq!(balance_response, Coin { denom: "ujunox".to_string(), amount: Uint128::from(100_000_000u128) });
+    }
+
+    #[test]
+    fn stage_expiration() {
+        let admin = admin();
+        let user1 = user("user0001");
+        let user2 = user("user0002");
+        let mut app = mock_app();
+
+        let rev_share_contract_addr = initialize_rev_share_contract(&mut app);
+
+        // wait for 1 block
+        app.update_block(next_block);
+
+        // create new stage
+        let expiration = Expiration::AtHeight(app.block_info().height + 10);
+        let msg = ExecuteMsg::CreateNewStage {
+            total_amount: Uint128::from(200_000_000u128),
+            snapshot_block: Some(app.block_info().height),
+            expiration: Some(expiration),
+            start: None,
+        };
+
+        app.execute_contract(
+            admin.clone(),
+            rev_share_contract_addr.clone(),
+            &msg,
+            &[],
+        ).unwrap();
+
+        mint_native(
+            &mut app, rev_share_contract_addr.clone().to_string(),
+            "ujunox".to_string(), Uint128::from(200_000_000u128),
+        );
+
+        // Claim some tokens before stage expires
+
+        let msg = ExecuteMsg::Claim {
+            stage: 1u8,
+        };
+
+        app.execute_contract(
+            user1.clone(),
+            rev_share_contract_addr.clone(),
+            &msg,
+            &[],
+        ).unwrap();
+
+        // query native balance of user1
+
+        let balance_response = query_balance_native(
+            &mut app,
+            &user1,
+            "ujunox".to_string(),
+        );
+
+        assert_eq!(balance_response, Coin { denom: "ujunox".to_string(), amount: Uint128::from(100_000_000u128) });
+
+        // move 100 blocks forward
+
+        app.update_block(jump_100_blocks);
+
+        // Claim some tokens after stage expires
+
+        let msg = ExecuteMsg::Claim {
+            stage: 1u8,
+        };
+
+        let error = app.execute_contract(
+            user2.clone(),
+            rev_share_contract_addr.clone(),
+            &msg,
+            &[],
+        ).unwrap_err();
+
+        assert_eq!(
+            error.downcast::<ContractError>().unwrap(),
+            ContractError::StageExpired { stage: 1u8, expiration }
+        );
     }
 }
 
